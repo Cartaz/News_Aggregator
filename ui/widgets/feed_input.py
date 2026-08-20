@@ -1,20 +1,12 @@
-"""Widget composito per l'inserimento di un nuovo URL feed.
-
-Combina ``QLineEdit`` + ``ActionButton`` in un layout orizzontale.
-Valida l'URL prima di emettere ``feed_submitted``.
-"""
+"""Widget composito per l'inserimento di un nuovo URL feed."""
 
 from __future__ import annotations
 
 import logging
 from urllib.parse import urlparse
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (
-    QHBoxLayout,
-    QLineEdit,
-    QWidget,
-)
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import QHBoxLayout, QLineEdit, QWidget
 
 from config.constants import Shortcuts
 from ui.widgets.action_button import ActionButton
@@ -24,41 +16,28 @@ logger = logging.getLogger(__name__)
 
 
 def is_valid_url(url: str) -> bool:
-    """Verifica sintatticamente che l'URL sia ben formato.
+    """Accetta URL HTTP(S) con hostname sintatticamente utilizzabile."""
 
-    Accetta solo schemi http/https.
-
-    Args:
-        url: URL da validare.
-
-    Returns:
-        True se l'URL è valido.
-    """
     if not url or not url.strip():
         return False
+    cleaned = url.strip()
+    if any(ch.isspace() for ch in cleaned):
+        return False
     try:
-        parsed = urlparse(url.strip())
-        return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+        parsed = urlparse(cleaned)
+        if parsed.scheme not in ("http", "https"):
+            return False
+        if not parsed.netloc or parsed.hostname is None:
+            return False
+        if any(ch.isspace() for ch in parsed.netloc):
+            return False
+        _ = parsed.port
+        return True
     except (ValueError, TypeError):
         return False
 
 
 def normalize_url(url: str) -> str:
-    """Normalizza un URL aggiungendo lo schema ``https://`` se mancante.
-
-    Accetta input come ``guru3d.com`` o ``www.guru3d.com`` e restituisce
-    ``https://guru3d.com``. URL già completi (con schema) sono restituiti
-    invariati (a parte il strip).
-
-    Args:
-        url: URL grezzo immesso dall'utente.
-
-    Returns:
-        URL normalizzato con schema https://.
-
-    Raises:
-        ValueError: Se l'URL non contiene un hostname valido.
-    """
     cleaned: str = (url or "").strip()
     if not cleaned:
         raise ValueError("URL vuoto")
@@ -70,16 +49,6 @@ def normalize_url(url: str) -> str:
 
 
 class FeedInput(QWidget):
-    """Input URL + pulsante aggiungi, con scorciatoia ``Ctrl+N``.
-
-    Args:
-        parent: Widget genitore.
-
-    Signals:
-        feed_submitted: Emesso con l'URL normalizzato quando l'utente
-            preme Invio o clicca Aggiungi.
-    """
-
     feed_submitted = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -88,7 +57,6 @@ class FeedInput(QWidget):
         self._connect_signals()
 
     def _setup_ui(self) -> None:
-        """Costruisce il layout orizzontale."""
         layout: QHBoxLayout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
@@ -108,16 +76,10 @@ class FeedInput(QWidget):
         layout.addWidget(self._add_button)
 
     def _connect_signals(self) -> None:
-        """Collega i segnali del widget."""
         self._url_edit.returnPressed.connect(self._submit)
         self._add_button.clicked.connect(self._submit)
 
     def _submit(self) -> None:
-        """Normalizza e propaga l'URL immesso.
-
-        Accetta anche URL senza schema (es. ``guru3d.com``): viene
-        aggiunto automaticamente ``https://``.
-        """
         raw: str = self._url_edit.text().strip()
         try:
             url: str = normalize_url(raw)
@@ -129,11 +91,9 @@ class FeedInput(QWidget):
         self._url_edit.clear()
 
     def set_focus(self) -> None:
-        """Attiva il focus sul campo URL."""
         self._url_edit.setFocus()
 
     def get_text(self) -> str:
-        """Restituisce il testo corrente (non validato)."""
         return self._url_edit.text()
 
 
