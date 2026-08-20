@@ -44,6 +44,7 @@ from ui.main_window_handlers import MainWindowHandlers
 from ui.widgets.action_button import ActionButton
 from ui.widgets.feed_input import FeedInput
 from ui.widgets.news_view import NewsView
+from ui.widgets.neumorphic_controls import NeumorphicLineEdit
 from ui.widgets.source_list import SourceList
 from ui.widgets.status_indicator import StatusIndicator
 
@@ -151,7 +152,7 @@ class MainWindow(QMainWindow):
         root.addWidget(action_bar)
 
         # --- Campo di ricerca articoli ---
-        self._search_edit: QLineEdit = QLineEdit(central)
+        self._search_edit: QLineEdit = NeumorphicLineEdit(central)
         self._search_edit.setPlaceholderText(
             "Filtra articoli per testo… (Ctrl+F)"
         )

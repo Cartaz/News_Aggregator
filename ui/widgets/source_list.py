@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 from core.models import FeedSource
 from ui.widgets.source_list_menu import show_context_menu
 from ui.widgets.source_tree_builder import build_tree
+from ui.widgets.neumorphic_controls import install_inset_overlay
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +113,9 @@ class SourceList(QWidget):
         self._tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._tree.setExpandsOnDoubleClick(False)
         layout.addWidget(self._tree)
+        self._tree_inset = install_inset_overlay(
+            self._tree, radius=12.0, use_viewport=True
+        )
 
     def _connect_signals(self) -> None:
         """Collega segnali interni."""

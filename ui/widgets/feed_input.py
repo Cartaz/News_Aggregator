@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 
 from config.constants import Shortcuts
 from ui.widgets.action_button import ActionButton
+from ui.widgets.neumorphic_controls import NeumorphicLineEdit
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +93,7 @@ class FeedInput(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
-        self._url_edit: QLineEdit = QLineEdit(self)
+        self._url_edit: QLineEdit = NeumorphicLineEdit(self)
         self._url_edit.setPlaceholderText(
             "es. guru3d.com o https://example.com/feed — Invio o Ctrl+N"
         )

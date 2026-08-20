@@ -1,82 +1,70 @@
-"""Token di colore, font e spaziatura per il tema Neumorphism.
+"""Centralized Dark Neumorphism design tokens.
 
-Tutti i componenti UI devono referenziare esclusivamente i token definiti
-in questo modulo. È vietato usare valori hex, font o dimensioni hardcoded
-altrove nell'applicazione (vincolo §5.1.5).
+The visible application background is exactly ``rgb(20, 20, 20)`` /
+``#141414``.
 
-Il tema è esclusivamente Neumorphism (dark): non esiste un tema chiaro e
-non esiste un selettore di tema (vincolo §5.1.9). Lo sfondo è #121213 e
-ogni elemento condivide lo stesso "materiale": la profondità nasce da
-due ombre contrapposte (chiara in alto a sinistra, scura in basso a
-destra), coerenti con un'unica fonte di luce virtuale.
+Depth is not simulated by 1 px QSS bevels.  Real multi-layer inset/outset
+shadows are rendered by :mod:`ui.styles.box_shadow_effect`, a pure-PySide6
+``QGraphicsEffect`` implementation.
+
+Geometry tokens intentionally match the stable application baseline.
 """
 
 from __future__ import annotations
 
 
 class ThemeColors:
-    """Token di colore semantici per Neumorphism.
+    """Semantic palette for the single dark-neumorphic theme."""
 
-    Nessun componente UI può usare valori hex al di fuori di questa classe.
-    I token sono organizzati per ruolo semantico, non per valore cromatico.
-    """
+    PRIMARY: str = "#FF6600"
+    PRIMARY_DARK: str = "#CC5200"
+    PRIMARY_SOFT: str = "#FF8A3D"
 
-    # Accento primario — Arancione Neumorphism
-    PRIMARY: str = "#ff6600"
-    PRIMARY_DARK: str = "#cc5200"
-    PRIMARY_SOFT: str = "#ff8c3d"
+    DANGER: str = "#E56A65"
+    DANGER_DARK: str = "#B04F4B"
+    GOOD: str = "#55C98F"
 
-    # Azioni distruttive / Avviso — Rosso "bad"
-    DANGER: str = "#e56a65"
-    DANGER_DARK: str = "#b04f4b"
+    # Mandatory base material.
+    BG_MAIN: str = "#141414"
 
-    # Stato positivo — Verde "good"
-    GOOD: str = "#55c98f"
+    # Surfaces are intentionally close to the base. Light/shadow creates shape.
+    BG_CARD: str = "#181818"
+    BG_ELEVATED: str = "#1B1B1B"
+    BG_INPUT: str = "#171717"
+    BG_HOVER: str = "#1D1D1D"
+    BG_TOOLTIP: str = "#1B1B1B"
+    BG_SELECTION: str = "#3A2518"
 
-    # Colori neutrali e di supporto
-    # Nel neumorphism lo sfondo di elementi e contenitore coincide:
-    # l'ombra crea la forma, non il colore.
-    BG_MAIN: str = "#121213"
-    BG_CARD: str = "#121213"
-    BG_INPUT: str = "#121213"
-    BG_HOVER: str = "#1a1a1c"
-    BG_TOOLTIP: str = "#1a1a1c"
-    BG_SELECTION: str = "#ff6600"
+    SURFACE_HIGH: str = "#1E1E1E"
+    SURFACE_MID: str = "#191919"
+    SURFACE_LOW: str = "#161616"
 
-    # Ombre neumorphic: chiara (alto/sinistra) e scura (basso/destra)
-    SHADOW_LIGHT: str = "#1e1e21"
+    # One virtual light source: upper-left.
+    SHADOW_LIGHT: str = "#3A3A3A"
+    SHADOW_LIGHT_SOFT: str = "#303030"
     SHADOW_DARK: str = "#000000"
-    SHADOW_DARK_SOFT: str = "#030304"
+    SHADOW_DARK_SOFT: str = "#050505"
 
-    # Bordi: nel neumorphism i bordi simulano le ombre, non sono contorni
-    BORDER: str = "#1e1e21"          # = SHADOW_LIGHT, per compatibilità
-    BORDER_DARK: str = "#000000"     # = SHADOW_DARK, lato opposto
-    BORDER_FOCUS: str = "#ff6600"    # anello di accento al focus
+    BORDER: str = "#242424"
+    BORDER_DARK: str = "#080808"
+    BORDER_SUBTLE: str = "#202020"
+    BORDER_FOCUS: str = PRIMARY
 
-    TEXT_PRIMARY: str = "#ededee"
-    TEXT_SECONDARY: str = "#97979b"
-    TEXT_DISABLED: str = "#616166"
-    TEXT_ON_PRIMARY: str = "#121213"  # testo scuro su accento arancione
+    TEXT_PRIMARY: str = "#ECEFF1"
+    TEXT_SECONDARY: str = "#A7ADB4"
+    TEXT_DISABLED: str = "#6F757C"
+    TEXT_ON_PRIMARY: str = "#111111"
 
-    # Indicatori di stato (palette neumorphism)
-    STATUS_RUNNING: str = "#55c98f"
-    STATUS_ERROR: str = "#e56a65"
-    STATUS_STOPPED: str = "#616166"
-    STATUS_PAUSED: str = "#ff6600"
+    STATUS_RUNNING: str = GOOD
+    STATUS_ERROR: str = DANGER
+    STATUS_STOPPED: str = TEXT_DISABLED
+    STATUS_PAUSED: str = PRIMARY
 
-    # Link
-    LINK: str = "#ff6600"
-    LINK_VISITED: str = "#ff8c3d"
+    LINK: str = PRIMARY
+    LINK_VISITED: str = PRIMARY_SOFT
 
 
 class ThemeFonts:
-    """Famiglie di font per Neumorphism.
-
-    Noto Sans per il testo dell'interfaccia (sans-serif pulita, leggibile
-    anche con il basso contrasto tipico del neumorphism), Sarasa Mono SC
-    per output tecnico, log e contenuto monospace.
-    """
-
     SANS: str = "Noto Sans"
     MONO: str = "Sarasa Mono SC"
     FALLBACK_SANS: str = "Sans Serif"
@@ -84,13 +72,7 @@ class ThemeFonts:
 
 
 class ThemeSpacing:
-    """Spaziature standard per layout e componenti Neumorphism.
-
-    Il neumorphism richiede più "respiro" attorno agli elementi rispetto
-    a un tema flat, perché le ombre hanno bisogno di spazio per essere
-    percepite. I border-radius sono più generosi (12/16/24 px).
-    """
-
+    # Stable geometry tokens — deliberately unchanged.
     XS: int = 4
     SM: int = 8
     MD: int = 12
@@ -98,24 +80,16 @@ class ThemeSpacing:
     XL: int = 24
     XXL: int = 32
 
-    # Gerarchia di border-radius coerente (linee guida §06)
     BORDER_RADIUS_SM: int = 8
     BORDER_RADIUS: int = 12
     BORDER_RADIUS_LG: int = 16
     BORDER_RADIUS_XL: int = 24
 
     BORDER_WIDTH: int = 1
-
     STATUS_INDICATOR_SIZE: int = 8
 
 
 class ThemeTypography:
-    """Gerarchia tipografica con dimensioni leggermente più generose.
-
-    Il neumorphism beneficia di body text un po' più grande per
-    compensare il ridotto contrasto visivo causato dalle ombre.
-    """
-
     CARD_HEADER_SIZE: int = 13
     CARD_HEADER_WEIGHT: int = 600
     CARD_HEADER_LETTER_SPACING: float = 0.5
@@ -137,15 +111,43 @@ class ThemeTypography:
 
 
 class ThemeAnimation:
-    """Durate e curve di easing per animazioni neumorphic.
-
-    Transizioni morbide (150-300 ms) con easing OutCubic: quando un
-    bottone viene premuto l'ombra si inverte fluidamente, non a scatti.
-    """
-
     DURATION_FAST_MS: int = 150
     DURATION_NORMAL_MS: int = 250
     DURATION_SLOW_MS: int = 300
 
     EASE_OUT: str = "OutCubic"
     EASE_IN_OUT: str = "InOutCubic"
+
+
+class ThemeDepth:
+    """Pure rendering tokens — no layout dimensions are defined here."""
+
+    # Raised control source is painted slightly inside its existing QWidget
+    # rect so the blurred lobes have room without changing the widget geometry.
+    BUTTON_SURFACE_INSET: float = 5.0
+    BADGE_SURFACE_INSET: float = 2.5
+
+    BUTTON_BLUR: float = 8.0
+    BUTTON_OFFSET: float = 5.5
+    BUTTON_DARK_ALPHA: int = 215
+    BUTTON_LIGHT_ALPHA: int = 178
+
+    BUTTON_HOVER_BLUR: float = 9.0
+    BUTTON_HOVER_OFFSET: float = 5.0
+    BUTTON_HOVER_DARK_ALPHA: int = 225
+    BUTTON_HOVER_LIGHT_ALPHA: int = 195
+
+    BADGE_BLUR: float = 5.5
+    BADGE_OFFSET: float = 3.5
+    BADGE_DARK_ALPHA: int = 205
+    BADGE_LIGHT_ALPHA: int = 155
+
+    INPUT_BLUR: float = 8.0
+    INPUT_OFFSET: float = 5.0
+    INPUT_DARK_ALPHA: int = 220
+    INPUT_LIGHT_ALPHA: int = 105
+
+    PANEL_BLUR: float = 11.0
+    PANEL_OFFSET: float = 6.0
+    PANEL_DARK_ALPHA: int = 190
+    PANEL_LIGHT_ALPHA: int = 85

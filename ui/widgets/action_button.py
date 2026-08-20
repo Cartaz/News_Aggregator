@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ui.widgets.neumorphic_controls import NeumorphicButton
 from ui.widgets.shortcut_badge import ShortcutBadge
 
 
@@ -53,7 +54,7 @@ class ActionButton(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
-        self._button: QPushButton = QPushButton(label, self)
+        self._button: QPushButton = NeumorphicButton(label, self)
         self._button.setCursor(Qt.CursorShape.PointingHandCursor)
         if self._danger:
             self._button.setProperty("danger", True)

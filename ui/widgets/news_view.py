@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
 from config.theme import ThemeColors
 from core.models import FeedItem
 from ui.widgets.news_view_table import format_date, format_time, populate_table
+from ui.widgets.neumorphic_controls import install_inset_overlay
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +91,9 @@ class NewsView(QWidget):
         )
         self._table.verticalHeader().setVisible(False)
         self._table.setShowGrid(False)
+        self._table_inset = install_inset_overlay(
+            self._table, radius=12.0, use_viewport=True
+        )
         # Disabilita scrollbar orizzontale (vincolo utente #2)
         self._table.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
@@ -135,6 +139,9 @@ class NewsView(QWidget):
         # netto rispetto alla tabella articoli sovrastante.
         detail_widget: QWidget = QWidget(splitter)
         detail_widget.setProperty("detailPanel", True)
+        self._detail_inset = install_inset_overlay(
+            detail_widget, radius=16.0, use_viewport=False
+        )
         detail_layout: QVBoxLayout = QVBoxLayout(detail_widget)
         detail_layout.setContentsMargins(12, 10, 12, 4)
         detail_layout.setSpacing(6)
