@@ -41,7 +41,7 @@ jobs:
           zip -qr news_aggregator_clean.zip news_aggregator_clean
           base64 -w 0 news_aggregator_clean.zip > "$GITHUB_WORKSPACE/news_aggregator_clean.zip.b64"
           cd "$GITHUB_WORKSPACE"
-          split -b 30000 -d -a 3 news_aggregator_clean.zip.b64 payload_parts/part_
+          split -b 8000 -d -a 3 news_aggregator_clean.zip.b64 payload_parts/part_
           ls payload_parts/part_* | sort | xargs -n1 basename > payload_parts/manifest.txt
           sha256sum /tmp/news_aggregator_clean.zip | awk '{print $1}' > payload_parts/sha256.txt
 
@@ -55,5 +55,5 @@ jobs:
           if git diff --cached --quiet; then
             exit 0
           fi
-          git commit -m "Build split clean archive payload"
+          git commit -m "Build retrievable clean archive payload"
           git push origin HEAD:${GITHUB_REF_NAME}
