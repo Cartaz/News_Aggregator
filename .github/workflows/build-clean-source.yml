@@ -1,0 +1,77 @@
+name: Build clean News Aggregator source archive
+
+on:
+  push:
+    branches:
+      - artifact-clean-neumorphism-v5-20260820
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Remove patchers and installation helpers
+        shell: bash
+        run: |
+          rm -f PATCH_README.md
+          rm -f install.sh PKGBUILD
+          rm -f apply_neumorphism_refactor.py verify_neumorphism_v5.py
+          rm -f README_NEUMORPHISM_V5.md SHA256SUMS
+          find . -type d -name __pycache__ -prune -exec rm -rf {} +
+          find . -type d -name .pytest_cache -prune -exec rm -rf {} +
+          find . -type f -name '*.pyc' -delete
+
+      - name: Write clean install notes
+        shell: bash
+        run: |
+          cat > CLEAN_INSTALL.md <<'EOF'
+          # News Aggregator - clean source tree
+
+          Nessun patcher o installer intermedio è richiesto.
+
+          ## Installazione
+
+          ```bash
+          python -m venv .venv
+          source .venv/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python main.py
+          ```
+
+          ## Test
+
+          ```bash
+          .venv/bin/python -m compileall -q main.py config core ui tests
+          .venv/bin/pytest tests
+          ```
+
+          La UI include direttamente il refactor Dark Neumorphism con accento #FF6600.
+          EOF
+
+      - name: Validate source syntax
+        shell: bash
+        run: python -m compileall -q main.py config core ui tests
+
+      - name: Build clean project directory
+        shell: bash
+        run: |
+          find . -type d -name __pycache__ -prune -exec rm -rf {} +
+          find . -type f -name '*.pyc' -delete
+          rm -rf .git .github
+          rm -rf /tmp/news_aggregator_clean
+          mkdir -p /tmp/news_aggregator_clean
+          cp -a . /tmp/news_aggregator_clean/
+          cd /tmp
+          zip -qr "$GITHUB_WORKSPACE/news_aggregator_clean.zip" news_aggregator_clean
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: news_aggregator_clean
+          path: news_aggregator_clean.zip
+          if-no-files-found: error
+          retention-days: 1
