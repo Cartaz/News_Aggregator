@@ -1,0 +1,21 @@
+# Dipendenze runtime di News Aggregator
+#
+# PySide6: le versioni <6.10 non supportano Python 3.14.
+# Richiedere >=6.10.1 per garantire compatibilità con Python 3.12+ / 3.13 / 3.14.
+PySide6>=6.10.1,<7.0.0
+feedparser>=6.0.10
+requests>=2.31.0
+# curl_cffi: fallback per siti con WAF (Cloudflare) che bloccano requests.
+# Emula il fingerprint TLS di Chrome 121, bypassando le challenge basilari.
+curl_cffi>=0.7.0
+# brotli: decompressione risposte `Content-Encoding: br`.
+# NECESSARIO perché _browser_headers() in core/feed_http.py invia
+# `Accept-Encoding: gzip, deflate, br`. Senza brotli installato,
+# requests restituisce i byte compressi grezzi e feedparser fallisce
+# con "not well-formed (invalid token)". Causa il fallimento di
+# tomshardware.com, kitguru.net e altri siti che comprimono in brotli.
+Brotli>=1.0.9
+
+# Dipendenze di sviluppo (opzionali, per i test)
+pytest>=7.4.0
+pytest-qt>=4.3.0

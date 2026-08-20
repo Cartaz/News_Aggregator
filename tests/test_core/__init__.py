@@ -1,0 +1,1 @@
+"""Pacchetto test_core."""
