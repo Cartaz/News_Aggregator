@@ -1,28 +1,14 @@
-"""Deterministic dark-neumorphic raster primitives.
+"""Deterministic dark-neumorphic painting primitives.
 
-The target screenshots showed that QGraphicsEffect output was not surviving
-the real QWidget composition path on the target system.  This renderer avoids
-that dependency entirely.
-
-All depth is drawn directly *inside the widget's existing pixel rectangle*:
-the visible material surface is inset by a few pixels and the reserved pixels
-are used for a multi-pass soft shadow.  Geometry reported to layouts does not
-change.
-
-No palette value is defined here. RGB values come only from ``ThemeColors``.
+All geometry belongs to the existing widgets.  These functions only paint
+inside their current rectangles.  One virtual light source is used throughout:
+upper-left light, lower-right shadow.
 """
 
 from __future__ import annotations
 
-from math import exp
-
-from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import (
-    QColor,
-    QLinearGradient,
-    QPainter,
-    QPainterPath,
-)
+from PySide6.QtCore import QLineF, QRectF, Qt
+from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPen
 
 from config.theme import ThemeColors
 
@@ -39,45 +25,349 @@ def alpha_color(hex_color: str, alpha: int) -> QColor:
     return color
 
 
-def _soft_lobe(
+def _edge_depth(width: float, height: float, requested: float) -> float:
+    return max(4.0, min(requested, width * 0.22, height * 0.34))
+
+
+def _edge_gradient(
+    painter: QPainter,
+    rect: QRectF,
+    *,
+    start: tuple[float, float],
+    end: tuple[float, float],
+    color: str,
+    alpha: int,
+    middle: float = 0.34,
+) -> None:
+    if rect.width() <= 0.0 or rect.height() <= 0.0 or alpha <= 0:
+        return
+
+    gradient = QLinearGradient(
+        rect.left() + rect.width() * start[0],
+        rect.top() + rect.height() * start[1],
+        rect.left() + rect.width() * end[0],
+        rect.top() + rect.height() * end[1],
+    )
+    gradient.setColorAt(0.0, alpha_color(color, alpha))
+    gradient.setColorAt(0.32, alpha_color(color, int(alpha * 0.62)))
+    gradient.setColorAt(0.68, alpha_color(color, int(alpha * middle)))
+    gradient.setColorAt(1.0, alpha_color(color, 0))
+    painter.fillRect(rect, gradient)
+
+
+def _split_edge_lines(
     painter: QPainter,
     surface: QRectF,
     *,
     radius: float,
-    offset_x: float,
-    offset_y: float,
-    color: str,
-    strength: int,
-    steps: int = 13,
-    max_spread: float = 7.0,
+    top_left: str,
+    top_left_alpha: int,
+    bottom_right: str,
+    bottom_right_alpha: int,
 ) -> None:
-    """Approximate a Gaussian lobe with nested translucent rounded shapes.
+    painter.save()
+    painter.setBrush(Qt.BrushStyle.NoBrush)
 
-    This deliberately does not depend on QGraphicsBlurEffect.  Each pass is
-    visible in the final QWidget paint buffer and therefore cannot disappear
-    because of effect-source clipping.
+    light_pen = QPen(alpha_color(top_left, top_left_alpha))
+    light_pen.setWidthF(1.15)
+    painter.setPen(light_pen)
+    painter.drawLine(
+        QLineF(
+            surface.left() + radius * 0.38,
+            surface.top() + 0.75,
+            surface.right() - radius * 0.48,
+            surface.top() + 0.75,
+        )
+    )
+    painter.drawLine(
+        QLineF(
+            surface.left() + 0.75,
+            surface.top() + radius * 0.38,
+            surface.left() + 0.75,
+            surface.bottom() - radius * 0.48,
+        )
+    )
+
+    dark_pen = QPen(alpha_color(bottom_right, bottom_right_alpha))
+    dark_pen.setWidthF(1.15)
+    painter.setPen(dark_pen)
+    painter.drawLine(
+        QLineF(
+            surface.left() + radius * 0.48,
+            surface.bottom() - 0.75,
+            surface.right() - radius * 0.38,
+            surface.bottom() - 0.75,
+        )
+    )
+    painter.drawLine(
+        QLineF(
+            surface.right() - 0.75,
+            surface.top() + radius * 0.48,
+            surface.right() - 0.75,
+            surface.bottom() - radius * 0.38,
+        )
+    )
+    painter.restore()
+
+
+def draw_raised_edge_overlay(
+    painter: QPainter,
+    bounds: QRectF,
+    *,
+    radius: float,
+    depth: float = 12.0,
+    light_alpha: int = 190,
+    dark_alpha: int = 238,
+) -> None:
+    """Draw only a raised rim, leaving the center untouched.
+
+    This is intended for an always-on-top, mouse-transparent child overlay so
+    complex native children can still paint normally underneath it.
     """
 
-    # Far, weak passes first; near, stronger passes last.
+    surface = bounds.adjusted(0.5, 0.5, -0.5, -0.5)
+    if surface.width() <= 2.0 or surface.height() <= 2.0:
+        return
+
+    d = _edge_depth(surface.width(), surface.height(), depth)
+    path = rounded_path(surface, radius)
+
+    painter.save()
+    painter.setClipPath(path, Qt.ClipOperation.IntersectClip)
+    _edge_gradient(
+        painter,
+        QRectF(surface.left(), surface.top(), surface.width(), d),
+        start=(0.5, 0.0),
+        end=(0.5, 1.0),
+        color=ThemeColors.SHADOW_LIGHT,
+        alpha=light_alpha,
+        middle=0.24,
+    )
+    _edge_gradient(
+        painter,
+        QRectF(surface.left(), surface.top(), d, surface.height()),
+        start=(0.0, 0.5),
+        end=(1.0, 0.5),
+        color=ThemeColors.SHADOW_LIGHT,
+        alpha=light_alpha,
+        middle=0.24,
+    )
+    _edge_gradient(
+        painter,
+        QRectF(surface.left(), surface.bottom() - d, surface.width(), d),
+        start=(0.5, 1.0),
+        end=(0.5, 0.0),
+        color=ThemeColors.SHADOW_DARK,
+        alpha=dark_alpha,
+        middle=0.44,
+    )
+    _edge_gradient(
+        painter,
+        QRectF(surface.right() - d, surface.top(), d, surface.height()),
+        start=(1.0, 0.5),
+        end=(0.0, 0.5),
+        color=ThemeColors.SHADOW_DARK,
+        alpha=dark_alpha,
+        middle=0.44,
+    )
+    painter.restore()
+
+    _split_edge_lines(
+        painter,
+        surface,
+        radius=radius,
+        top_left=ThemeColors.SHADOW_LIGHT,
+        top_left_alpha=min(235, light_alpha + 28),
+        bottom_right=ThemeColors.SHADOW_DARK,
+        bottom_right_alpha=min(255, dark_alpha + 12),
+    )
+
+
+def draw_inset_edge_overlay(
+    painter: QPainter,
+    bounds: QRectF,
+    *,
+    radius: float,
+    depth: float = 14.0,
+    dark_alpha: int = 250,
+    light_alpha: int = 155,
+    focused: bool = False,
+) -> None:
+    """Draw only the walls of a recessed cavity above native content."""
+
+    surface = bounds.adjusted(0.5, 0.5, -0.5, -0.5)
+    if surface.width() <= 2.0 or surface.height() <= 2.0:
+        return
+
+    d = _edge_depth(surface.width(), surface.height(), depth)
+    path = rounded_path(surface, radius)
+
+    painter.save()
+    painter.setClipPath(path, Qt.ClipOperation.IntersectClip)
+    _edge_gradient(
+        painter,
+        QRectF(surface.left(), surface.top(), surface.width(), d),
+        start=(0.5, 0.0),
+        end=(0.5, 1.0),
+        color=ThemeColors.SHADOW_DARK,
+        alpha=dark_alpha,
+        middle=0.46,
+    )
+    _edge_gradient(
+        painter,
+        QRectF(surface.left(), surface.top(), d, surface.height()),
+        start=(0.0, 0.5),
+        end=(1.0, 0.5),
+        color=ThemeColors.SHADOW_DARK,
+        alpha=dark_alpha,
+        middle=0.46,
+    )
+    _edge_gradient(
+        painter,
+        QRectF(surface.left(), surface.bottom() - d, surface.width(), d),
+        start=(0.5, 1.0),
+        end=(0.5, 0.0),
+        color=ThemeColors.SHADOW_LIGHT,
+        alpha=light_alpha,
+        middle=0.24,
+    )
+    _edge_gradient(
+        painter,
+        QRectF(surface.right() - d, surface.top(), d, surface.height()),
+        start=(1.0, 0.5),
+        end=(0.0, 0.5),
+        color=ThemeColors.SHADOW_LIGHT,
+        alpha=light_alpha,
+        middle=0.24,
+    )
+    painter.restore()
+
+    _split_edge_lines(
+        painter,
+        surface,
+        radius=radius,
+        top_left=ThemeColors.SHADOW_DARK,
+        top_left_alpha=235,
+        bottom_right=ThemeColors.SHADOW_LIGHT,
+        bottom_right_alpha=175,
+    )
+
+    if focused:
+        painter.save()
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        focus_pen = QPen(alpha_color(ThemeColors.BORDER_FOCUS, 225))
+        focus_pen.setWidthF(1.4)
+        painter.setPen(focus_pen)
+        painter.drawPath(
+            rounded_path(
+                surface.adjusted(2.0, 2.0, -2.0, -2.0),
+                max(2.0, radius - 2.0),
+            )
+        )
+        painter.restore()
+
+
+def draw_panel_material(
+    painter: QPainter,
+    bounds: QRectF,
+    *,
+    radius: float,
+    elevated: bool = False,
+) -> None:
+    """Paint the base material for a large panel before children are drawn."""
+
+    surface = bounds.adjusted(0.5, 0.5, -0.5, -0.5)
+    gradient = QLinearGradient(surface.topLeft(), surface.bottomRight())
+    if elevated:
+        gradient.setColorAt(0.0, QColor(ThemeColors.SURFACE_HIGH))
+        gradient.setColorAt(0.46, QColor(ThemeColors.BG_ELEVATED))
+        gradient.setColorAt(1.0, QColor(ThemeColors.BG_CARD))
+    else:
+        gradient.setColorAt(0.0, QColor(ThemeColors.SURFACE_MID))
+        gradient.setColorAt(0.48, QColor(ThemeColors.BG_CARD))
+        gradient.setColorAt(1.0, QColor(ThemeColors.BG_MAIN))
+    painter.fillPath(rounded_path(surface, radius), gradient)
+
+
+def _outer_ring(surface: QRectF, *, radius: float, width: float) -> QPainterPath:
+    outer = rounded_path(surface.adjusted(-width, -width, width, width), radius + width)
+    return outer.subtracted(rounded_path(surface, radius))
+
+
+def _direction_band(surface: QRectF, *, width: float, light_side: bool) -> QPainterPath:
+    band = QPainterPath()
+    if light_side:
+        band.addRect(
+            QRectF(
+                surface.left() - width,
+                surface.top() - width,
+                surface.width() + width * 2.0,
+                width + 1.0,
+            )
+        )
+        band.addRect(
+            QRectF(
+                surface.left() - width,
+                surface.top() - width,
+                width + 1.0,
+                surface.height() + width * 2.0,
+            )
+        )
+    else:
+        band.addRect(
+            QRectF(
+                surface.left() - width,
+                surface.bottom() - 1.0,
+                surface.width() + width * 2.0,
+                width + 1.0,
+            )
+        )
+        band.addRect(
+            QRectF(
+                surface.right() - 1.0,
+                surface.top() - width,
+                width + 1.0,
+                surface.height() + width * 2.0,
+            )
+        )
+    return band
+
+
+def _soft_directional_lobe(
+    painter: QPainter,
+    surface: QRectF,
+    *,
+    radius: float,
+    offset: float,
+    color: str,
+    strength: int,
+    light_side: bool,
+    steps: int = 20,
+    spread: float = 10.0,
+) -> None:
+    zone = spread + abs(offset) + 1.0
+    clip = _outer_ring(surface, radius=radius, width=zone)
+    clip = clip.intersected(_direction_band(surface, width=zone, light_side=light_side))
+
+    painter.save()
+    painter.setClipPath(clip, Qt.ClipOperation.IntersectClip)
+    per_step = max(1.0, float(strength) / float(steps))
+    translation = -offset if light_side else offset
     for index in range(steps, 0, -1):
         t = index / steps
-        spread = max_spread * t
-
-        # Gaussian-like energy distribution.  Individual alpha stays low;
-        # overlap creates the soft continuous falloff.
-        weight = exp(-2.15 * (t ** 2))
-        layer_alpha = max(1, int((strength / steps) * (0.62 + weight)))
-
-        rect = surface.translated(offset_x, offset_y).adjusted(
-            -spread,
-            -spread,
-            spread,
-            spread,
+        layer_spread = spread * t
+        alpha = max(1, int(per_step * (0.68 + (1.0 - t) * 0.86)))
+        rect = surface.translated(translation, translation).adjusted(
+            -layer_spread,
+            -layer_spread,
+            layer_spread,
+            layer_spread,
         )
         painter.fillPath(
-            rounded_path(rect, radius + spread),
-            alpha_color(color, layer_alpha),
+            rounded_path(rect, radius + layer_spread),
+            alpha_color(color, alpha),
         )
+    painter.restore()
 
 
 def draw_raised_surface(
@@ -94,97 +384,75 @@ def draw_raised_surface(
     focused: bool = False,
     disabled: bool = False,
 ) -> QRectF:
-    """Draw a clearly raised surface while staying inside ``bounds``."""
+    """Paint a complete raised surface for buttons/badges/cards."""
 
-    surface = bounds.adjusted(
-        surface_inset,
-        surface_inset,
-        -surface_inset,
-        -surface_inset,
-    )
+    surface = bounds.adjusted(surface_inset, surface_inset, -surface_inset, -surface_inset)
+    if surface.width() <= 0.0 or surface.height() <= 0.0:
+        return bounds
 
-    light_gain = 18 if hovered else 0
-    dark_gain = 12 if hovered else 0
+    light = min(255, light_strength + (24 if hovered else 10))
+    dark = min(255, dark_strength + (18 if hovered else 8))
+    if disabled:
+        light = int(light * 0.42)
+        dark = int(dark * 0.42)
 
-    _soft_lobe(
+    _soft_directional_lobe(
         painter,
         surface,
         radius=radius,
-        offset_x=-light_offset,
-        offset_y=-light_offset,
+        offset=light_offset,
         color=ThemeColors.SHADOW_LIGHT,
-        strength=min(255, light_strength + light_gain),
+        strength=light,
+        light_side=True,
     )
-    _soft_lobe(
+    _soft_directional_lobe(
         painter,
         surface,
         radius=radius,
-        offset_x=dark_offset,
-        offset_y=dark_offset,
+        offset=dark_offset,
         color=ThemeColors.SHADOW_DARK,
-        strength=min(255, dark_strength + dark_gain),
+        strength=dark,
+        light_side=False,
     )
 
     gradient = QLinearGradient(surface.topLeft(), surface.bottomRight())
-
     if disabled:
         gradient.setColorAt(0.0, QColor(ThemeColors.BG_CARD))
         gradient.setColorAt(1.0, QColor(ThemeColors.BG_MAIN))
     elif hovered:
-        # Same locked palette; only select existing semantic shades.
         gradient.setColorAt(0.0, QColor(ThemeColors.SURFACE_HIGH))
-        gradient.setColorAt(0.52, QColor(ThemeColors.BG_ELEVATED))
+        gradient.setColorAt(0.42, QColor(ThemeColors.BG_ELEVATED))
         gradient.setColorAt(1.0, QColor(ThemeColors.SURFACE_LOW))
     else:
         gradient.setColorAt(0.0, QColor(ThemeColors.SURFACE_HIGH))
         gradient.setColorAt(0.50, QColor(ThemeColors.SURFACE_MID))
         gradient.setColorAt(1.0, QColor(ThemeColors.SURFACE_LOW))
-
     painter.fillPath(rounded_path(surface, radius), gradient)
 
-    # Broad, faint upper-left material reflection; not a border.
-    highlight = surface.adjusted(2.0, 2.0, -2.0, 0.0)
-    highlight.setHeight(min(7.0, max(3.0, surface.height() * 0.24)))
-    painter.fillPath(
-        rounded_path(highlight, max(2.0, radius - 2.0)),
-        alpha_color(ThemeColors.SHADOW_LIGHT, 18 if hovered else 13),
+    draw_raised_edge_overlay(
+        painter,
+        surface,
+        radius=radius,
+        depth=min(8.0, max(5.0, surface.height() * 0.20)),
+        light_alpha=120 if disabled else (185 if hovered else 165),
+        dark_alpha=145 if disabled else (225 if hovered else 205),
     )
 
     if focused and not disabled:
+        painter.save()
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        pen = painter.pen()
-        pen.setColor(QColor(ThemeColors.BORDER_FOCUS))
-        pen.setWidthF(1.5)
+        pen = QPen(alpha_color(ThemeColors.BORDER_FOCUS, 225))
+        pen.setWidthF(1.4)
         painter.setPen(pen)
         painter.drawPath(
             rounded_path(
-                surface.adjusted(1.0, 1.0, -1.0, -1.0),
-                max(2.0, radius - 1.0),
+                surface.adjusted(1.8, 1.8, -1.8, -1.8),
+                max(2.0, radius - 1.8),
             )
         )
+        painter.restore()
 
     return surface
-
-
-def _edge_gradient(
-    painter: QPainter,
-    rect: QRectF,
-    *,
-    start: tuple[float, float],
-    end: tuple[float, float],
-    color: str,
-    alpha: int,
-) -> None:
-    gradient = QLinearGradient(
-        rect.left() + rect.width() * start[0],
-        rect.top() + rect.height() * start[1],
-        rect.left() + rect.width() * end[0],
-        rect.top() + rect.height() * end[1],
-    )
-    gradient.setColorAt(0.0, alpha_color(color, alpha))
-    gradient.setColorAt(0.38, alpha_color(color, int(alpha * 0.52)))
-    gradient.setColorAt(1.0, alpha_color(color, 0))
-    painter.fillRect(rect, gradient)
 
 
 def draw_inset_surface(
@@ -194,127 +462,42 @@ def draw_inset_surface(
     radius: float,
     dark_strength: int,
     light_strength: int,
-    depth: float = 11.0,
+    depth: float = 13.0,
     focused: bool = False,
     disabled: bool = False,
     fill_base: bool = True,
 ) -> QRectF:
-    """Draw a recessed cavity with directional soft inner falloff."""
+    """Paint a complete recessed material cavity."""
 
     surface = bounds.adjusted(1.0, 1.0, -1.0, -1.0)
-    path = rounded_path(surface, radius)
+    if surface.width() <= 0.0 or surface.height() <= 0.0:
+        return bounds
 
     if fill_base:
-        painter.fillPath(
-            path,
-            QColor(
-                ThemeColors.BG_MAIN
-                if disabled
-                else ThemeColors.BG_INPUT
-            ),
-        )
+        gradient = QLinearGradient(surface.topLeft(), surface.bottomRight())
+        gradient.setColorAt(0.0, QColor(ThemeColors.SURFACE_LOW))
+        gradient.setColorAt(0.50, QColor(ThemeColors.BG_INPUT))
+        gradient.setColorAt(1.0, QColor(ThemeColors.BG_INPUT))
+        painter.fillPath(rounded_path(surface, radius), gradient)
 
-    painter.save()
-    painter.setClipPath(path)
-
-    # Top and left: virtual light comes from upper-left, so the cavity blocks
-    # light there and produces the dominant dark inner falloff.
-    _edge_gradient(
+    draw_inset_edge_overlay(
         painter,
-        QRectF(surface.left(), surface.top(), surface.width(), depth),
-        start=(0.5, 0.0),
-        end=(0.5, 1.0),
-        color=ThemeColors.SHADOW_DARK,
-        alpha=dark_strength,
+        surface,
+        radius=radius,
+        depth=depth,
+        dark_alpha=min(255, dark_strength),
+        light_alpha=min(220, light_strength),
+        focused=focused and not disabled,
     )
-    _edge_gradient(
-        painter,
-        QRectF(surface.left(), surface.top(), depth, surface.height()),
-        start=(0.0, 0.5),
-        end=(1.0, 0.5),
-        color=ThemeColors.SHADOW_DARK,
-        alpha=dark_strength,
-    )
-
-    # Bottom/right: restrained reflected light.
-    bottom = QRectF(
-        surface.left(),
-        surface.bottom() - depth,
-        surface.width(),
-        depth,
-    )
-    bottom_gradient = QLinearGradient(
-        bottom.left(),
-        bottom.bottom(),
-        bottom.left(),
-        bottom.top(),
-    )
-    bottom_gradient.setColorAt(
-        0.0,
-        alpha_color(ThemeColors.SHADOW_LIGHT_SOFT, light_strength),
-    )
-    bottom_gradient.setColorAt(
-        0.45,
-        alpha_color(
-            ThemeColors.SHADOW_LIGHT_SOFT,
-            int(light_strength * 0.42),
-        ),
-    )
-    bottom_gradient.setColorAt(
-        1.0,
-        alpha_color(ThemeColors.SHADOW_LIGHT_SOFT, 0),
-    )
-    painter.fillRect(bottom, bottom_gradient)
-
-    right = QRectF(
-        surface.right() - depth,
-        surface.top(),
-        depth,
-        surface.height(),
-    )
-    right_gradient = QLinearGradient(
-        right.right(),
-        right.top(),
-        right.left(),
-        right.top(),
-    )
-    right_gradient.setColorAt(
-        0.0,
-        alpha_color(ThemeColors.SHADOW_LIGHT_SOFT, light_strength),
-    )
-    right_gradient.setColorAt(
-        0.45,
-        alpha_color(
-            ThemeColors.SHADOW_LIGHT_SOFT,
-            int(light_strength * 0.42),
-        ),
-    )
-    right_gradient.setColorAt(
-        1.0,
-        alpha_color(ThemeColors.SHADOW_LIGHT_SOFT, 0),
-    )
-    painter.fillRect(right, right_gradient)
-
-    painter.restore()
-
-    if focused and not disabled:
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        pen = painter.pen()
-        pen.setColor(QColor(ThemeColors.BORDER_FOCUS))
-        pen.setWidthF(1.5)
-        painter.setPen(pen)
-        painter.drawPath(
-            rounded_path(
-                surface.adjusted(1.0, 1.0, -1.0, -1.0),
-                max(2.0, radius - 1.0),
-            )
-        )
-
     return surface
 
 
 __all__ = [
+    "alpha_color",
+    "draw_inset_edge_overlay",
     "draw_inset_surface",
+    "draw_panel_material",
+    "draw_raised_edge_overlay",
     "draw_raised_surface",
     "rounded_path",
 ]
