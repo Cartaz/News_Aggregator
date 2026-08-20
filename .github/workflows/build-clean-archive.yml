@@ -1,0 +1,54 @@
+name: Build clean source archive
+
+on:
+  push:
+    branches:
+      - artifact-clean-neumorphism-v5-20260820
+    paths-ignore:
+      - news_aggregator_clean.zip.b64
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build clean archive payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/news_aggregator_clean /tmp/news_aggregator_clean.zip
+          mkdir -p /tmp/news_aggregator_clean
+          shopt -s dotglob
+          for item in *; do
+            case "$item" in
+              .git|.github|PATCH_README.md|PKGBUILD|install.sh|apply_neumorphism_refactor.py|verify_neumorphism_v5.py|README_NEUMORPHISM_V5.md|SHA256SUMS|news_aggregator_clean.zip.b64)
+                continue
+                ;;
+            esac
+            cp -a "$item" /tmp/news_aggregator_clean/
+          done
+          find /tmp/news_aggregator_clean -type d -name '__pycache__' -prune -exec rm -rf {} +
+          find /tmp/news_aggregator_clean -type d -name '.pytest_cache' -prune -exec rm -rf {} +
+          find /tmp/news_aggregator_clean -type f -name '*.pyc' -delete
+          cd /tmp
+          zip -qr news_aggregator_clean.zip news_aggregator_clean
+          base64 -w 0 news_aggregator_clean.zip > "$GITHUB_WORKSPACE/news_aggregator_clean.zip.b64"
+
+      - name: Commit payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add news_aggregator_clean.zip.b64
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Build clean archive payload"
+          git push origin HEAD:${GITHUB_REF_NAME}
