@@ -13,7 +13,7 @@ const state = {
     running: false,
     current: 0,
     total: 0,
-    backendSeenRunning: false,
+    manualSeenRunning: false,
     hideTimer: null,
   },
   modalReturnFocus: null,
@@ -99,7 +99,25 @@ function scheduleRefreshStatePoll(active) {
     refreshPollTimer = null;
     const response = await bridgeCall('getSnapshot');
     if (response?.ok) applySnapshot(response);
-  }, 250);
+  }, 200);
+}
+
+function scheduleRefreshHide() {
+  if (state.refresh.hideTimer !== null) return;
+  state.refresh.hideTimer = window.setTimeout(() => {
+    const backendBusy = Boolean(
+      state.snapshot?.refreshing?.all
+      || state.snapshot?.refreshing?.feeds?.length
+    );
+    if (!backendBusy) {
+      state.refresh.running = false;
+      state.refresh.manualSeenRunning = false;
+      state.refresh.hideTimer = null;
+      updateRefreshProgress();
+    } else {
+      state.refresh.hideTimer = null;
+    }
+  }, 450);
 }
 
 function applySnapshot(snapshot) {
@@ -112,36 +130,42 @@ function applySnapshot(snapshot) {
   els['unread-toggle'].checked = state.showUnreadOnly;
   els['app-name'].textContent = snapshot.data.app.name;
 
-  const refreshState = snapshot.data.refreshing || { all: false, feeds: [] };
+  const refreshState = snapshot.data.refreshing || {
+    all: false,
+    manualAll: false,
+    current: 0,
+    total: 0,
+    feeds: [],
+  };
   const backendGlobalRunning = Boolean(refreshState.all);
+  const backendManualRunning = Boolean(refreshState.manualAll);
   const backendBusy = backendGlobalRunning || (refreshState.feeds || []).length > 0;
 
-  if (backendGlobalRunning && state.refresh.running) {
-    state.refresh.backendSeenRunning = true;
-  } else if (
-    state.refresh.running
-    && state.refresh.backendSeenRunning
-    && !backendGlobalRunning
-  ) {
-    // Python is authoritative for whether refresh-all is still active.
-    // Finish visually at 100%, then hide the bar after a short confirmation.
-    state.refresh.current = state.refresh.total;
-    state.refresh.backendSeenRunning = false;
-    updateRefreshProgress();
+  if (backendManualRunning) {
     if (state.refresh.hideTimer !== null) {
       window.clearTimeout(state.refresh.hideTimer);
+      state.refresh.hideTimer = null;
     }
-    state.refresh.hideTimer = window.setTimeout(() => {
-      if (!state.snapshot?.refreshing?.all) {
-        state.refresh.running = false;
-        state.refresh.hideTimer = null;
-        updateRefreshProgress();
-      }
-    }, 320);
+    state.refresh.running = true;
+    state.refresh.manualSeenRunning = true;
+    const backendTotal = Math.max(0, Number(refreshState.total) || 0);
+    const backendCurrent = Math.max(0, Number(refreshState.current) || 0);
+    if (backendTotal > 0) state.refresh.total = backendTotal;
+    state.refresh.current = Math.max(
+      Number(state.refresh.current) || 0,
+      Math.min(state.refresh.total, backendCurrent)
+    );
+    updateRefreshProgress();
+  } else if (
+    state.refresh.running
+    && state.refresh.manualSeenRunning
+    && !backendGlobalRunning
+  ) {
+    state.refresh.current = state.refresh.total;
+    updateRefreshProgress();
+    scheduleRefreshHide();
   }
 
-  // Never let a stale JavaScript progress flag keep the button disabled.
-  // Only the backend's real busy state controls whether refresh can be started.
   els['refresh-all-btn'].disabled = backendBusy;
   scheduleRefreshStatePoll(backendBusy);
 
