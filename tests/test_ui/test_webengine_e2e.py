@@ -126,6 +126,42 @@ def test_refresh_progresses_one_segment_per_completed_feed(qtbot, backend, monke
     assert controller.get_refresh_state()["current"] == 2
 
 
+def test_background_refresh_reloads_current_scope_without_reclick(qtbot, backend, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    manager, controller = backend
+    source = manager.add("https://example.com/feed.xml", title="Example")
+    manager.set_category(source.id, "Tech")
+
+    def background_refresh(source_id: str) -> int:
+        refreshed = manager.get(source_id)
+        refreshed.items = [article(source_id, "Background News", 1)]
+        manager.save()
+        return 1
+
+    monkeypatch.setattr(manager, "refresh", background_refresh)
+    view = open_app(qtbot, controller)
+    js(qtbot, view, "document.querySelector('#category-list .source-row').click(); true")
+    wait_js(qtbot, view, "document.getElementById('content-title').textContent", "Tech")
+    wait_js(qtbot, view, "document.querySelectorAll('.article-row').length", 0)
+
+    assert controller.refresh_all_async() is True
+    wait_js(qtbot, view, "state.snapshot.refreshing.active", False)
+    wait_js(qtbot, view, "document.getElementById('all-unread').textContent", "1")
+    wait_js(qtbot, view, "document.querySelector('#category-list .count-badge').textContent", "1")
+    wait_js(qtbot, view, "document.querySelectorAll('.article-row').length", 1)
+    assert js(qtbot, view, "document.querySelector('.article-title').textContent") == "Background News"
+    assert js(qtbot, view, "document.getElementById('content-title').textContent") == "Tech"
+
+    badge_style = js(
+        qtbot,
+        view,
+        "(() => { const s=getComputedStyle(document.querySelector('#category-list .count-badge')); return [s.color,s.backgroundColor,s.boxShadow,parseFloat(s.fontSize)]; })()",
+    )
+    assert badge_style[0] == "rgb(255, 102, 0)"
+    assert badge_style[1] == "rgba(0, 0, 0, 0)"
+    assert badge_style[2] == "none"
+    assert badge_style[3] >= 16
+
+
 def test_unread_filter_and_arrow_navigation(qtbot, backend) -> None:  # type: ignore[no-untyped-def]
     manager, controller = backend
     source = manager.add("https://example.com/feed.xml", title="Example")
