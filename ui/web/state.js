@@ -9,13 +9,6 @@ const state = {
   selectedItemId: null,
   search: '',
   showUnreadOnly: false,
-  refresh: {
-    running: false,
-    current: 0,
-    total: 0,
-    manualSeenRunning: false,
-    hideTimer: null,
-  },
   modalReturnFocus: null,
 };
 
@@ -99,25 +92,7 @@ function scheduleRefreshStatePoll(active) {
     refreshPollTimer = null;
     const response = await bridgeCall('getSnapshot');
     if (response?.ok) applySnapshot(response);
-  }, 200);
-}
-
-function scheduleRefreshHide() {
-  if (state.refresh.hideTimer !== null) return;
-  state.refresh.hideTimer = window.setTimeout(() => {
-    const backendBusy = Boolean(
-      state.snapshot?.refreshing?.all
-      || state.snapshot?.refreshing?.feeds?.length
-    );
-    if (!backendBusy) {
-      state.refresh.running = false;
-      state.refresh.manualSeenRunning = false;
-      state.refresh.hideTimer = null;
-      updateRefreshProgress();
-    } else {
-      state.refresh.hideTimer = null;
-    }
-  }, 450);
+  }, 250);
 }
 
 function applySnapshot(snapshot) {
@@ -131,41 +106,16 @@ function applySnapshot(snapshot) {
   els['app-name'].textContent = snapshot.data.app.name;
 
   const refreshState = snapshot.data.refreshing || {
-    all: false,
-    manualAll: false,
+    active: false,
+    scope: '',
+    sourceId: '',
     current: 0,
     total: 0,
     feeds: [],
+    operationId: 0,
   };
-  const backendGlobalRunning = Boolean(refreshState.all);
-  const backendManualRunning = Boolean(refreshState.manualAll);
-  const backendBusy = backendGlobalRunning || (refreshState.feeds || []).length > 0;
-
-  if (backendManualRunning) {
-    if (state.refresh.hideTimer !== null) {
-      window.clearTimeout(state.refresh.hideTimer);
-      state.refresh.hideTimer = null;
-    }
-    state.refresh.running = true;
-    state.refresh.manualSeenRunning = true;
-    const backendTotal = Math.max(0, Number(refreshState.total) || 0);
-    const backendCurrent = Math.max(0, Number(refreshState.current) || 0);
-    if (backendTotal > 0) state.refresh.total = backendTotal;
-    state.refresh.current = Math.max(
-      Number(state.refresh.current) || 0,
-      Math.min(state.refresh.total, backendCurrent)
-    );
-    updateRefreshProgress();
-  } else if (
-    state.refresh.running
-    && state.refresh.manualSeenRunning
-    && !backendGlobalRunning
-  ) {
-    state.refresh.current = state.refresh.total;
-    updateRefreshProgress();
-    scheduleRefreshHide();
-  }
-
+  const backendBusy = Boolean(refreshState.active);
+  updateRefreshProgress(refreshState);
   els['refresh-all-btn'].disabled = backendBusy;
   scheduleRefreshStatePoll(backendBusy);
 
@@ -285,7 +235,11 @@ function renderSelectedFeedActions() {
   els['selected-feed-title'].textContent = feed.title;
   if (feed.lastError) els['selected-feed-status'].textContent = `Errore: ${feed.lastError}`;
   else els['selected-feed-status'].textContent = feed.lastUpdated ? `Aggiornato ${formatDate(feed.lastUpdated)}` : 'Mai aggiornato';
-  const refreshing = Boolean(state.snapshot?.refreshing?.all || state.snapshot?.refreshing?.feeds?.includes(feed.id));
+  const refresh = state.snapshot?.refreshing;
+  const refreshing = Boolean(
+    refresh?.active
+    && (refresh.scope === 'all' || refresh.feeds?.includes(feed.id))
+  );
   els['refresh-feed-btn'].disabled = refreshing;
   els['refresh-feed-btn'].textContent = refreshing ? 'In corso…' : 'Aggiorna';
 }
