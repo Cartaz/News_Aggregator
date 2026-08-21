@@ -1,19 +1,10 @@
-"""Strategia di fetch HTTP con fallback ``curl_cffi`` per WAF.
-
-Estratto da ``feed_fetcher.py`` per rispettare il limite di 300 righe
-per file (§5.1.3). Implementa la strategia:
-
-1. Prima prova ``requests`` (veloce, leggera).
-2. Se 403 o XML mal formato, riprova con ``curl_cffi`` impersonando
-   Chrome 121. Questo bypassa i WAF Cloudflare/Akamai che bloccano
-   i client Python noti.
-3. Se anche ``curl_cffi`` fallisce, solleva l'errore originale.
-"""
+"""Strategia HTTP per download feed, WAF fallback e cache validation."""
 
 from __future__ import annotations
 
 import logging
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Mapping
 
 import requests
 from requests.exceptions import RequestException, Timeout
@@ -23,7 +14,6 @@ from core.exceptions import FeedFetchError
 
 logger = logging.getLogger(__name__)
 
-# Lazy import di curl_cffi (non sempre disponibile in test)
 try:
     from curl_cffi import requests as cf_requests  # type: ignore[import-untyped]
     _HAS_CURL_CFFI: bool = True
@@ -31,24 +21,24 @@ except ImportError:
     cf_requests = None  # type: ignore[assignment]
     _HAS_CURL_CFFI = False
 
-# Verifica disponibilità brotli: necessario per decomprimere risposte
-# `Content-Encoding: br`. Senza, i byte compressi vengono passati
-# direttamente a feedparser che fallisce con "not well-formed".
 try:
-    import brotli  # noqa: F401  (l'import basta per abilitare urllib3)
+    import brotli  # noqa: F401
     _HAS_BROTLI: bool = True
 except ImportError:
     _HAS_BROTLI = False
 
 
-def _accept_encoding_value() -> str:
-    """Restituisce l'header Accept-Encoding adatto all'ambiente.
+@dataclass(frozen=True)
+class HttpFetchResult:
+    """Risultato HTTP con validator utili ai refresh condizionali."""
 
-    Se brotli è installato, includiamo `br` (molti siti lo usano e
-    riduce la banda del 60-80% rispetto a gzip). Se NON è installato,
-    NON includiamo `br`: altrimenti il server invia byte brotli che
-    requests non sa decomprimere e feedparser riceve byte binari grezzi.
-    """
+    content: bytes
+    etag: str = ""
+    last_modified: str = ""
+    not_modified: bool = False
+
+
+def _accept_encoding_value() -> str:
     if _HAS_BROTLI:
         return "gzip, deflate, br"
     logger.debug(
@@ -59,7 +49,6 @@ def _accept_encoding_value() -> str:
 
 
 def _browser_headers() -> dict[str, str]:
-    """Header HTTP browser-like completi."""
     return {
         "User-Agent": FeedDefaults.USER_AGENT,
         "Accept": (
@@ -73,82 +62,100 @@ def _browser_headers() -> dict[str, str]:
     }
 
 
-def _looks_like_cloudflare_challenge(content: bytes) -> bool:
-    """Rileva la pagina challenge HTML di Cloudflare ('Just a moment...').
+def _conditional_headers(etag: str, last_modified: str) -> dict[str, str]:
+    headers: dict[str, str] = {}
+    if etag:
+        headers["If-None-Match"] = etag
+    if last_modified:
+        headers["If-Modified-Since"] = last_modified
+    return headers
 
-    Cloudflare serve questa pagina con 200/403 quando la richiesta
-    supera il fingerprint check ma non la JS challenge. curl_cffi
-    supera il fingerprint, ma la JS challenge richiede un browser
-    reale. Rileviamo questo caso per dare un messaggio d'errore utile.
-    """
+
+def _metadata_result(
+    content: bytes,
+    headers: Mapping[str, Any],
+    *,
+    not_modified: bool = False,
+    fallback_etag: str = "",
+    fallback_last_modified: str = "",
+) -> HttpFetchResult:
+    return HttpFetchResult(
+        content=content,
+        etag=str(headers.get("ETag", "") or fallback_etag),
+        last_modified=str(
+            headers.get("Last-Modified", "") or fallback_last_modified
+        ),
+        not_modified=not_modified,
+    )
+
+
+def _looks_like_cloudflare_challenge(content: bytes) -> bool:
     if not content:
         return False
     head: bytes = content[:2048].lower()
     return b"just a moment" in head or b"cf-browser-verification" in head
 
 
-def fetch_url(url: str, timeout: int | None = None) -> bytes:
-    """Scarica il contenuto di un URL con fallback ``curl_cffi``.
+def fetch_url_response(
+    url: str,
+    timeout: int | None = None,
+    *,
+    etag: str = "",
+    last_modified: str = "",
+) -> HttpFetchResult:
+    """Scarica un URL restituendo contenuto e validator HTTP.
 
-    Strategia:
-    1. ``requests.get`` con header browser-like.
-    2. Se 403 o risposta vuota, riprova con ``curl_cffi`` impersonando
-       Chrome 121 (bypassa WAF Cloudflare basilari).
-    3. Se ``curl_cffi`` non è disponibile o fallisce, solleva
-       ``FeedFetchError`` con il messaggio appropriato.
-
-    Args:
-        url: URL da scaricare.
-        timeout: Timeout in secondi (default da FeedDefaults).
-
-    Returns:
-        I bytes del contenuto scaricato.
-
-    Raises:
-        FeedFetchError: Se entrambi i metodi falliscono.
+    Quando sono presenti validator, invia ``If-None-Match`` e/o
+    ``If-Modified-Since``. Una risposta ``304 Not Modified`` è un risultato
+    valido: ``not_modified`` sarà True e ``content`` resterà vuoto.
     """
     actual_timeout: int = timeout or FeedDefaults.REQUEST_TIMEOUT_SECONDS
+    conditional = _conditional_headers(etag, last_modified)
+    request_headers = _browser_headers()
+    request_headers.update(conditional)
     last_error: FeedFetchError | None = None
 
-    # Tentativo 1: requests
     try:
         logger.debug("GET %s (requests, timeout=%ds)", url, actual_timeout)
         response: requests.Response = requests.get(
             url,
             timeout=actual_timeout,
-            headers=_browser_headers(),
+            headers=request_headers,
             allow_redirects=True,
         )
+        if response.status_code == 304:
+            logger.debug("HTTP 304 Not Modified: %s", url)
+            return _metadata_result(
+                b"",
+                response.headers,
+                not_modified=True,
+                fallback_etag=etag,
+                fallback_last_modified=last_modified,
+            )
         response.raise_for_status()
         if response.content:
-            # Sanity check: se la risposta è brotli ma brotli non è
-            # installato, i byte sono illeggibili. Avvisa l'utente.
             ce = response.headers.get("Content-Encoding", "").lower()
             if "br" in ce and not _HAS_BROTLI:
                 logger.warning(
-                    "Risposta brotli da %s ma brotli non installato — "
-                    "i byte saranno probabilmente illeggibili. "
-                    "Installa 'Brotli' (pip install Brotli).",
+                    "Risposta brotli da %s ma brotli non installato; "
+                    "installa 'Brotli' per decomprimerla correttamente.",
                     url,
                 )
-            return response.content
-        # Contenuto vuoto: prova curl_cffi
+            return _metadata_result(response.content, response.headers)
         last_error = FeedFetchError(url, "risposta vuota")
     except requests.HTTPError as exc:
-        status: int = response.status_code
-        if status == 403:
+        if response.status_code == 403:
             last_error = FeedFetchError(
                 url,
                 "403 Forbidden — WAF blocca requests, provo curl_cffi",
             )
         else:
             last_error = FeedFetchError(url, str(exc))
-    except Timeout as exc:
+    except Timeout:
         last_error = FeedFetchError(url, f"timeout ({actual_timeout}s)")
     except RequestException as exc:
         last_error = FeedFetchError(url, str(exc))
 
-    # Tentativo 2: curl_cffi (se disponibile)
     if _HAS_CURL_CFFI:
         try:
             logger.debug("GET %s (curl_cffi, chrome120)", url)
@@ -157,20 +164,26 @@ def fetch_url(url: str, timeout: int | None = None) -> bytes:
                 impersonate="chrome120",
                 timeout=actual_timeout,
                 allow_redirects=True,
+                headers=conditional or None,
             )
+            if cf_response.status_code == 304:
+                logger.debug("HTTP 304 Not Modified via curl_cffi: %s", url)
+                return _metadata_result(
+                    b"",
+                    cf_response.headers,
+                    not_modified=True,
+                    fallback_etag=etag,
+                    fallback_last_modified=last_modified,
+                )
             if cf_response.status_code == 200 and cf_response.content:
                 content_bytes: bytes = bytes(cf_response.content)
-                # curl_cffi decomprime brotli nativamente, ma se la
-                # risposta è la challenge page di Cloudflare, segnaliamolo
-                # con un errore chiaro invece di passare HTML al parser.
                 if _looks_like_cloudflare_challenge(content_bytes):
                     raise FeedFetchError(
                         url,
                         "Cloudflare JS challenge non superabile senza "
-                        "browser reale. Prova con un URL diretto del "
-                        "feed RSS o un proxy (es. rss-bridge).",
+                        "browser reale. Prova con un URL diretto del feed RSS.",
                     )
-                return content_bytes
+                return _metadata_result(content_bytes, cf_response.headers)
             if cf_response.status_code == 403:
                 last_error = FeedFetchError(
                     url,
@@ -185,27 +198,17 @@ def fetch_url(url: str, timeout: int | None = None) -> bytes:
             raise
         except Exception as exc:
             logger.debug("curl_cffi fallito: %s", exc)
-            # Mantieni last_error dal tentativo requests
 
     raise last_error or FeedFetchError(url, "errore sconosciuto")
 
 
+def fetch_url(url: str, timeout: int | None = None) -> bytes:
+    """API compatibile: scarica e restituisce solo i bytes."""
+    return fetch_url_response(url, timeout).content
+
+
 def fetch_url_simple(url: str, timeout: int) -> bytes:
-    """Scarica un URL con solo ``requests`` (no fallback).
-
-    Usato per i path fallback dell'auto-discovery, dove curl_cffi
-    non serve (sono path diretti di feed).
-
-    Args:
-        url: URL da scaricare.
-        timeout: Timeout in secondi.
-
-    Returns:
-        I bytes del contenuto.
-
-    Raises:
-        FeedFetchError: Se la richiesta fallisce.
-    """
+    """Scarica un URL con solo ``requests`` (senza fallback WAF)."""
     try:
         logger.debug("GET %s (requests, timeout=%ds)", url, timeout)
         response: requests.Response = requests.get(
@@ -230,4 +233,9 @@ def fetch_url_simple(url: str, timeout: int) -> bytes:
         raise FeedFetchError(url, str(exc)) from exc
 
 
-__all__ = ["fetch_url", "fetch_url_simple"]
+__all__ = [
+    "HttpFetchResult",
+    "fetch_url",
+    "fetch_url_response",
+    "fetch_url_simple",
+]
