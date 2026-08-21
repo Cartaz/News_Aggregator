@@ -88,6 +88,19 @@ function bindEvents() {
   });
 }
 
+function recordCompletedRefreshFeed(sourceId) {
+  if (!state.refresh.running || !sourceId || state.refresh.total <= 0) return;
+  if (!(state.refresh.completedFeedIds instanceof Set)) {
+    state.refresh.completedFeedIds = new Set();
+  }
+  state.refresh.completedFeedIds.add(sourceId);
+  state.refresh.current = Math.max(
+    Number(state.refresh.current) || 0,
+    Math.min(state.refresh.total, state.refresh.completedFeedIds.size)
+  );
+  updateRefreshProgress();
+}
+
 function bindBackendSignals() {
   state.backend.stateChanged.connect((raw) => {
     try { applySnapshot(JSON.parse(raw)); }
@@ -122,8 +135,10 @@ function bindBackendSignals() {
     try {
       const event = JSON.parse(raw);
       if (event.event === 'feed_refresh_failed') {
+        recordCompletedRefreshFeed(event.payload?.source_id);
         showToast('Feed non aggiornato', event.payload?.error || 'Errore di rete');
       } else if (event.event === 'feed_refresh_completed') {
+        recordCompletedRefreshFeed(event.payload?.source_id);
         // Aggiorna lista e contatori feed/categoria ad ogni sorgente
         // completata, non solo al termine dell'intero refresh globale.
         await loadItems();
