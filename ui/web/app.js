@@ -1,5 +1,7 @@
 'use strict';
 
+let lastReloadedRefreshOperationId = 0;
+
 async function openSelectedLink() {
   const item = state.items.find((candidate) => candidate.id === state.selectedItemId);
   if (!item?.link) return;
@@ -15,6 +17,18 @@ async function markSelectedRead() {
   item.read = true;
   await loadSnapshot();
   applyFilters();
+}
+
+async function syncItemsAfterCompletedRefresh(refreshState) {
+  const operationId = Number(refreshState?.operationId) || 0;
+  if (
+    refreshState?.active
+    || operationId <= 0
+    || operationId <= lastReloadedRefreshOperationId
+  ) return;
+
+  lastReloadedRefreshOperationId = operationId;
+  await loadItems({ syncSnapshot: false });
 }
 
 function canNavigateArticlesWithArrows(target) {
@@ -134,7 +148,11 @@ function bindEvents() {
 
 function bindBackendSignals() {
   state.backend.stateChanged.connect((raw) => {
-    try { applySnapshot(JSON.parse(raw)); }
+    try {
+      const snapshot = JSON.parse(raw);
+      applySnapshot(snapshot);
+      void syncItemsAfterCompletedRefresh(snapshot?.data?.refreshing);
+    }
     catch { /* ignore malformed backend event */ }
   });
 
@@ -154,19 +172,15 @@ function bindBackendSignals() {
       showToast('Aggiornamento feed fallito', result.message || '');
     }
 
-    await loadSnapshot({ reloadItems: true });
+    await loadSnapshot();
+    await syncItemsAfterCompletedRefresh(state.snapshot?.refreshing);
   });
 
-  state.backend.backendEvent.connect(async (raw) => {
+  state.backend.backendEvent.connect((raw) => {
     try {
       const event = JSON.parse(raw);
       if (event.event === 'feed_refresh_failed') {
         showToast('Feed non aggiornato', event.payload?.error || 'Errore di rete');
-      } else if (
-        event.event === 'feed_refresh_completed'
-        && !state.snapshot?.refreshing?.active
-      ) {
-        await loadItems();
       }
     } catch { /* ignore */ }
   });
