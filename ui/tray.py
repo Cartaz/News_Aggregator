@@ -46,19 +46,28 @@ class TrayIcon(QSystemTrayIcon):
             self.setIcon(self._base_icon)
             self.setToolTip(AppMeta.DISPLAY_NAME)
             return
+
         self.setToolTip(f"{AppMeta.DISPLAY_NAME} — {self._unread_count} non letti")
         pixmap = self._base_icon.pixmap(64, 64)
         if pixmap.isNull():
             pixmap = QPixmap(64, 64)
             pixmap.fill(QColor("#141414"))
+
+        text = "99+" if self._unread_count > 99 else str(self._unread_count)
+        font = QFont("Sans Serif")
+        font.setWeight(QFont.Weight.Black)
+        if len(text) == 1:
+            font.setPixelSize(28)
+        elif len(text) == 2:
+            font.setPixelSize(22)
+        else:
+            font.setPixelSize(16)
+
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(QColor("#141414"))
-        painter.setBrush(QColor("#FF6600"))
-        painter.drawEllipse(34, 34, 29, 29)
-        painter.setFont(QFont("Sans Serif", 9, QFont.Weight.Bold))
-        text = "99+" if self._unread_count > 99 else str(self._unread_count)
-        painter.drawText(34, 34, 29, 29, Qt.AlignmentFlag.AlignCenter, text)
+        painter.setPen(QColor("#FF6600"))
+        painter.setFont(font)
+        painter.drawText(31, 31, 33, 33, Qt.AlignmentFlag.AlignCenter, text)
         painter.end()
         self.setIcon(QIcon(pixmap))
 

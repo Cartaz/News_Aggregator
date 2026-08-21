@@ -153,9 +153,10 @@ def test_background_refresh_reloads_current_scope_without_reclick(qtbot, backend
 
     badge = "document.querySelector('#category-list .count-badge')"
     assert js(qtbot, view, f"getComputedStyle({badge}).color") == "rgb(255, 102, 0)"
-    assert js(qtbot, view, f"getComputedStyle({badge}).backgroundColor") == "rgba(0, 0, 0, 0)"
-    assert js(qtbot, view, f"getComputedStyle({badge}).boxShadow") == "none"
-    assert js(qtbot, view, f"parseFloat(getComputedStyle({badge}).fontSize)") >= 16
+    assert js(qtbot, view, f"getComputedStyle({badge}).backgroundColor") == "rgb(20, 20, 20)"
+    assert js(qtbot, view, f"getComputedStyle({badge}).boxShadow") != "none"
+    assert js(qtbot, view, f"getComputedStyle({badge}).borderRadius") == "10px"
+    assert js(qtbot, view, f"getComputedStyle({badge}).height") == "23px"
 
 
 def test_unread_filter_and_arrow_navigation(qtbot, backend) -> None:  # type: ignore[no-untyped-def]
