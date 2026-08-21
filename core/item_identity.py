@@ -32,6 +32,7 @@ def canonicalize_url(raw_url: str) -> str:
         return ""
     try:
         parsed = urlsplit(value)
+        port = parsed.port
     except ValueError:
         return value
     if not parsed.scheme or not parsed.netloc:
@@ -41,7 +42,6 @@ def canonicalize_url(raw_url: str) -> str:
     hostname = (parsed.hostname or "").lower()
     if not hostname:
         return value
-    port = parsed.port
     if (scheme == "http" and port == 80) or (scheme == "https" and port == 443):
         port = None
     userinfo = ""
@@ -55,8 +55,8 @@ def canonicalize_url(raw_url: str) -> str:
         netloc += f":{port}"
 
     query_pairs = [
-        (key, value)
-        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+        (key, item_value)
+        for key, item_value in parse_qsl(parsed.query, keep_blank_values=True)
         if key.lower() not in _TRACKING_KEYS
     ]
     query = urlencode(query_pairs, doseq=True)
