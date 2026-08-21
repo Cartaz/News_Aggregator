@@ -24,8 +24,14 @@ class ThemeColors:
     SURFACE_LOW: str = SURFACE
 
     PRIMARY: str = "#FF6600"
+    PRIMARY_DARK: str = PRIMARY
+    PRIMARY_SOFT: str = PRIMARY
+    DANGER: str = PRIMARY
+    DANGER_DARK: str = PRIMARY
+    GOOD: str = PRIMARY
     BORDER_FOCUS: str = PRIMARY
     LINK: str = PRIMARY
+    LINK_VISITED: str = PRIMARY
 
     TEXT_PRIMARY: str = "#E1E1E1"
     TEXT_SECONDARY: str = "#878787"
@@ -33,9 +39,17 @@ class ThemeColors:
     TEXT_ON_PRIMARY: str = SURFACE
 
     SHADOW_LIGHT: str = "#4B4B4B"
+    SHADOW_LIGHT_SOFT: str = SHADOW_LIGHT
     SHADOW_DARK: str = "#000000"
-    BORDER: str = "#141414"
-    BORDER_SUBTLE: str = "#141414"
+    SHADOW_DARK_SOFT: str = SHADOW_DARK
+    BORDER: str = SURFACE
+    BORDER_DARK: str = SHADOW_DARK
+    BORDER_SUBTLE: str = SURFACE
+
+    STATUS_RUNNING: str = PRIMARY
+    STATUS_ERROR: str = PRIMARY
+    STATUS_STOPPED: str = TEXT_DISABLED
+    STATUS_PAUSED: str = PRIMARY
 
 
 class ThemeFonts:
