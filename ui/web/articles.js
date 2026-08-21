@@ -88,10 +88,11 @@ function clearDetail() {
 async function refreshAll() {
   const response = await bridgeCall('refreshAll');
   if (!response?.ok) { showToast('Aggiornamento non avviato', response?.message || ''); return; }
+  const enabledFeeds = state.snapshot?.feeds?.filter((feed) => feed.enabled) || [];
   state.refresh = {
     running: true,
     current: 0,
-    total: state.snapshot?.feeds?.length || 0,
+    total: enabledFeeds.length,
     backendSeenRunning: true,
   };
   updateRefreshProgress();
@@ -105,12 +106,55 @@ async function refreshCurrentFeed() {
   else await loadSnapshot();
 }
 
+function ensureRefreshSegments(total) {
+  const fill = els['refresh-fill'];
+  fill.style.width = '100%';
+  fill.style.display = 'flex';
+  fill.style.gap = total > 1 ? '2px' : '0';
+  fill.style.background = 'transparent';
+  fill.style.boxShadow = 'none';
+  fill.style.transition = 'none';
+
+  if (fill.dataset.total === String(total)) return;
+  fill.dataset.total = String(total);
+  fill.replaceChildren();
+
+  for (let index = 0; index < total; index += 1) {
+    const segment = document.createElement('span');
+    segment.setAttribute('aria-hidden', 'true');
+    segment.style.flex = '1 1 0';
+    segment.style.minWidth = '0';
+    segment.style.height = '100%';
+    segment.style.borderRadius = '3px';
+    segment.style.background = 'var(--surface)';
+    segment.style.transition = 'background 180ms ease, box-shadow 180ms ease';
+    fill.appendChild(segment);
+  }
+}
+
 function updateRefreshProgress() {
   els['refresh-track'].hidden = !state.refresh.running;
   els['refresh-all-btn'].disabled = state.refresh.running;
-  const percent = state.refresh.total > 0 ? Math.round((state.refresh.current / state.refresh.total) * 100) : 0;
-  els['refresh-fill'].style.width = `${Math.max(0, Math.min(100, percent))}%`;
-  els['refresh-track'].setAttribute('aria-valuenow', String(percent));
+
+  const total = Math.max(0, Number(state.refresh.total) || 0);
+  const completed = Math.max(0, Math.min(total, Number(state.refresh.current) || 0));
+  ensureRefreshSegments(total);
+
+  [...els['refresh-fill'].children].forEach((segment, index) => {
+    const done = index < completed;
+    segment.style.background = done ? 'var(--accent)' : 'var(--surface)';
+    segment.style.boxShadow = done ? '0 0 8px rgba(255,102,0,.25)' : 'none';
+  });
+
+  const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+  els['refresh-track'].setAttribute('role', 'progressbar');
+  els['refresh-track'].setAttribute('aria-valuemin', '0');
+  els['refresh-track'].setAttribute('aria-valuemax', String(total));
+  els['refresh-track'].setAttribute('aria-valuenow', String(completed));
+  els['refresh-track'].setAttribute(
+    'aria-valuetext',
+    total > 0 ? `${completed} di ${total} feed aggiornati (${percent}%)` : 'Nessun feed da aggiornare'
+  );
 }
 
 function modalField(id, label, value = '', placeholder = '', type = 'text') {

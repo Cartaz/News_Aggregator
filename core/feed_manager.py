@@ -199,7 +199,8 @@ class FeedManager:
         """Aggiorna tutte le sorgenti abilitate.
 
         Args:
-            progress_cb: Callback (source_id, current, total).
+            progress_cb: Callback (source_id, completed, total), invocata
+                dopo il completamento di ciascun feed, anche in caso di errore.
 
         Returns:
             Dict con ``success``, ``failed``, ``errors``.
@@ -211,14 +212,15 @@ class FeedManager:
         total: int = len(sources)
         success: int = 0
         errors: list[str] = []
-        for idx, source in enumerate(sources, start=1):
-            if progress_cb:
-                progress_cb(source.id, idx, total)
+        for completed, source in enumerate(sources, start=1):
             try:
                 self.refresh(source.id)
                 success += 1
             except FeedError as exc:
                 errors.append(f"{source.url}: {exc}")
+            finally:
+                if progress_cb:
+                    progress_cb(source.id, completed, total)
         return {"success": success, "failed": len(errors), "errors": errors}
 
     def mark_read(self, source_id: str, item_id: str) -> None:
