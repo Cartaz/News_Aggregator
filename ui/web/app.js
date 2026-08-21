@@ -31,6 +31,18 @@ async function syncItemsAfterCompletedRefresh(refreshState) {
   await loadItems({ syncSnapshot: false });
 }
 
+async function resyncVisibleView() {
+  await loadSnapshot();
+  const refreshState = state.snapshot?.refreshing;
+  if (!refreshState?.active) {
+    lastReloadedRefreshOperationId = Math.max(
+      lastReloadedRefreshOperationId,
+      Number(refreshState?.operationId) || 0
+    );
+  }
+  await loadItems({ syncSnapshot: false });
+}
+
 function canNavigateArticlesWithArrows(target) {
   if (!els['modal-backdrop'].hidden) return false;
   if (!(target instanceof HTMLElement)) return true;
@@ -154,6 +166,10 @@ function bindBackendSignals() {
       void syncItemsAfterCompletedRefresh(snapshot?.data?.refreshing);
     }
     catch { /* ignore malformed backend event */ }
+  });
+
+  state.backend.uiSyncRequested.connect(() => {
+    void resyncVisibleView();
   });
 
   state.backend.refreshFinished.connect(async (raw) => {

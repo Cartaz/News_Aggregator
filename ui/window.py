@@ -5,8 +5,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import QUrl
-from PySide6.QtGui import QColor, QCloseEvent, QDesktopServices, QIcon
+from PySide6.QtCore import QTimer, QUrl
+from PySide6.QtGui import QColor, QCloseEvent, QDesktopServices, QIcon, QShowEvent
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import QWebEnginePage
 from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -67,6 +67,12 @@ class WebMainWindow(QMainWindow):
             self._controller.settings_manager.save()
         except Exception:
             logger.warning("Impossibile salvare la geometria finestra", exc_info=True)
+
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        # WebEngine may throttle/miss WebChannel signals while the native window
+        # is hidden in the tray. Once visible, force a fresh snapshot + item load.
+        QTimer.singleShot(0, self.bridge.request_ui_sync)
 
     def hide_to_tray(self) -> None:
         self._persist_geometry()

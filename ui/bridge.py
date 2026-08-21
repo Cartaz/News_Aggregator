@@ -29,6 +29,7 @@ class WebBridge(QObject):
     refreshFinished = Signal(str)
     unreadCountChanged = Signal(int)
     newItemsDetected = Signal(int, str)
+    uiSyncRequested = Signal()
     requestQuit = Signal()
     requestHide = Signal()
 
@@ -91,6 +92,10 @@ class WebBridge(QObject):
     def _deliver_finish(self, raw: str) -> None:
         self.refreshFinished.emit(raw)
         self._emit_state()
+
+    def request_ui_sync(self) -> None:
+        """Ask the web view to reload current state/items after becoming visible."""
+        self.uiSyncRequested.emit()
 
     def _emit_state(self) -> None:
         snapshot = self.getSnapshot()

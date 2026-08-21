@@ -159,6 +159,31 @@ def test_background_refresh_reloads_current_scope_without_reclick(qtbot, backend
     assert js(qtbot, view, f"getComputedStyle({badge}).height") == "23px"
 
 
+def test_resume_sync_recovers_after_hidden_refresh_signals_are_missed(qtbot, backend) -> None:  # type: ignore[no-untyped-def]
+    manager, controller = backend
+    source = manager.add("https://example.com/feed.xml", title="Example")
+    manager.set_category(source.id, "Tech")
+    view = open_app(qtbot, controller)
+    js(qtbot, view, "document.querySelector('#category-list .source-row').click(); true")
+    wait_js(qtbot, view, "document.getElementById('content-title').textContent", "Tech")
+    wait_js(qtbot, view, "document.querySelectorAll('.article-row').length", 0)
+
+    view.hide()
+    refreshed = manager.get(source.id)
+    refreshed.items = [article(source.id, "Hidden News", 1)]
+    manager.save()
+
+    # No EventBus/WebChannel refresh event is emitted: this simulates a hidden
+    # WebEngine page missing the background-refresh state transition entirely.
+    view.show()
+    view._bridge.uiSyncRequested.emit()  # type: ignore[attr-defined]
+
+    wait_js(qtbot, view, "document.getElementById('all-unread').textContent", "1")
+    wait_js(qtbot, view, "document.querySelector('#category-list .count-badge').textContent", "1")
+    wait_js(qtbot, view, "document.querySelectorAll('.article-row').length", 1)
+    assert js(qtbot, view, "document.querySelector('.article-title').textContent") == "Hidden News"
+
+
 def test_unread_filter_and_arrow_navigation(qtbot, backend) -> None:  # type: ignore[no-untyped-def]
     manager, controller = backend
     source = manager.add("https://example.com/feed.xml", title="Example")
