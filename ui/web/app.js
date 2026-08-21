@@ -17,6 +17,37 @@ async function markSelectedRead() {
   applyFilters();
 }
 
+function canNavigateArticlesWithArrows(target) {
+  if (!els['modal-backdrop'].hidden) return false;
+  if (!(target instanceof HTMLElement)) return true;
+  if (target.matches('input, textarea, select') || target.isContentEditable) return false;
+  const interactive = target.closest('button, a, [role="button"]');
+  return !interactive || Boolean(target.closest('.article-row'));
+}
+
+async function navigateArticleSelection(direction) {
+  const items = state.filteredItems;
+  if (!items.length) return;
+
+  const currentIndex = items.findIndex((item) => item.id === state.selectedItemId);
+  let nextIndex;
+  if (currentIndex < 0) {
+    nextIndex = direction > 0 ? 0 : items.length - 1;
+  } else {
+    nextIndex = Math.max(0, Math.min(items.length - 1, currentIndex + direction));
+  }
+
+  if (nextIndex === currentIndex) return;
+  await selectArticle(items[nextIndex].id);
+
+  const selectedRow = [...els['article-list'].querySelectorAll('.article-row')]
+    .find((row) => row.dataset.itemId === state.selectedItemId);
+  if (selectedRow) {
+    selectedRow.focus({ preventScroll: true });
+    selectedRow.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+  }
+}
+
 function bindEvents() {
   els['source-nav'].querySelector('[data-scope="all"]').addEventListener('click', () => selectScope('all', '', 'Tutti gli articoli'));
   els['search-input'].addEventListener('input', (event) => { state.search = event.target.value; applyFilters(); });
@@ -51,6 +82,19 @@ function bindEvents() {
       }
     }
     if (event.key === 'Escape' && !els['modal-backdrop'].hidden) { closeModal(); return; }
+
+    if (
+      !event.ctrlKey
+      && !event.metaKey
+      && !event.altKey
+      && (event.key === 'ArrowUp' || event.key === 'ArrowDown')
+      && canNavigateArticlesWithArrows(event.target)
+    ) {
+      event.preventDefault();
+      void navigateArticleSelection(event.key === 'ArrowDown' ? 1 : -1);
+      return;
+    }
+
     if (!(event.ctrlKey || event.metaKey)) return;
     const key = event.key.toLowerCase();
     if (key === 'f') { event.preventDefault(); els['search-input'].focus(); }
