@@ -6,6 +6,7 @@ import json
 import logging
 import threading
 from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -56,14 +57,20 @@ class FeedManager:
                     logger.warning("Feed ignorato (dati non validi): %s", exc)
 
     def save(self) -> None:
+        """Persiste lo snapshot corrente serializzando anche la scrittura.
+
+        Con refresh concorrenti più worker possono terminare quasi insieme.
+        Il lock resta quindi acquisito fino alla fine di ``write_text`` per
+        impedire scritture JSON sovrapposte sullo stesso file.
+        """
         try:
             with self._lock:
                 data = {
                     "sources": [serialize_source(s) for s in self._sources.values()]
                 }
-            self._path.write_text(
-                json.dumps(data, indent=2, default=str), encoding="utf-8"
-            )
+                self._path.write_text(
+                    json.dumps(data, indent=2, default=str), encoding="utf-8"
+                )
         except OSError as exc:
             logger.error("Impossibile salvare i feed: %s", exc)
 
@@ -236,20 +243,58 @@ class FeedManager:
         self,
         progress_cb: Callable[[str, int, int], None] | None = None,
     ) -> dict[str, Any]:
+        """Aggiorna i feed abilitati con un pool concorrente limitato.
+
+        Il callback di progresso viene invocato dal thread coordinatore dopo
+        ogni future completata, quindi ``completed`` cresce sempre da 1 a N
+        anche se l'ordine dei feed terminati è diverso da quello iniziale.
+        """
         with self._lock:
             sources = [s for s in self._sources.values() if s.enabled]
         total = len(sources)
+        if total == 0:
+            return {"success": 0, "failed": 0, "errors": []}
+
+        max_workers = min(FeedDefaults.REFRESH_MAX_WORKERS, total)
         success = 0
         errors: list[str] = []
-        for completed, source in enumerate(sources, start=1):
-            try:
-                self.refresh(source.id)
-                success += 1
-            except FeedError as exc:
-                errors.append(f"{source.url}: {exc}")
-            finally:
-                if progress_cb:
-                    progress_cb(source.id, completed, total)
+        completed = 0
+
+        with ThreadPoolExecutor(
+            max_workers=max_workers,
+            thread_name_prefix="feed-refresh",
+        ) as executor:
+            future_to_source: dict[Future[int], FeedSource] = {
+                executor.submit(self.refresh, source.id): source
+                for source in sources
+            }
+            for future in as_completed(future_to_source):
+                source = future_to_source[future]
+                try:
+                    future.result()
+                    success += 1
+                except FeedError as exc:
+                    errors.append(f"{source.url}: {exc}")
+                except Exception as exc:
+                    logger.error(
+                        "Errore inatteso durante refresh di %s: %s",
+                        source.url,
+                        exc,
+                        exc_info=True,
+                    )
+                    errors.append(f"{source.url}: {exc}")
+                finally:
+                    completed += 1
+                    if progress_cb:
+                        try:
+                            progress_cb(source.id, completed, total)
+                        except Exception as exc:
+                            logger.error(
+                                "Callback progresso refresh fallita: %s",
+                                exc,
+                                exc_info=True,
+                            )
+
         return {"success": success, "failed": len(errors), "errors": errors}
 
     def mark_read(self, source_id: str, item_id: str) -> None:

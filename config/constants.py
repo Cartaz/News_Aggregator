@@ -69,6 +69,9 @@ class FeedDefaults:
     REFRESH_INTERVAL_OPTIONS_MIN: list[int] = [1, 5, 15, 30, 60, 120, 360]
     MAX_ITEMS_PER_FEED: int = 50
     REQUEST_TIMEOUT_SECONDS: int = 15
+    # Numero massimo di feed aggiornati contemporaneamente. Un limite basso
+    # riduce sensibilmente la latenza globale senza martellare i server RSS.
+    REFRESH_MAX_WORKERS: int = 4
     # User-Agent: molti siti (TechPowerUp, ecc.) bloccano i reader RSS
     # noti. Usiamo un UA browser-like puro senza identificare l'app
     # come RSS reader, così passiamo i WAF basilari. Siti con bot

@@ -140,9 +140,10 @@ def test_refresh_all_progress_counts_completed_feeds(manager: FeedManager) -> No
             )
         )
 
-    assert progress == [
-        (first.id, 1, 2),
-        (second.id, 2, 2),
-    ]
+    # In modalità concorrente l'ordine dei feed completati non è garantito,
+    # ma il contatore deve avanzare monotonamente una sola volta per feed.
+    assert [completed for _, completed, _ in progress] == [1, 2]
+    assert {source_id for source_id, _, _ in progress} == {first.id, second.id}
+    assert all(total == 2 for _, _, total in progress)
     assert result["success"] == 1
     assert result["failed"] == 1
