@@ -16,7 +16,7 @@ class AppMeta:
 
     NAME = "news-aggregator"
     DISPLAY_NAME = "News Aggregator"
-    VERSION = "1.0.0"
+    VERSION = "1.0.1"
     DESCRIPTION = "Aggregatore di feed RSS/Atom in formato solo testo"
     AUTHOR = "CachyOS User"
     LICENSE = "GPL-3.0-or-later"
