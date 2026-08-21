@@ -31,7 +31,6 @@ def _item(source_id: str, suffix: str, published: datetime) -> FeedItem:
 def test_stale_feed_entries_are_not_reported_as_new_repeatedly(
     manager: FeedManager,
 ) -> None:
-    """Entries outside the visible age window must never trigger new-item events."""
     source = manager.add("https://example.com/feed.xml")
     now = datetime.now(timezone.utc)
     recent = _item(source.id, "recent", now - timedelta(minutes=5))
@@ -42,8 +41,8 @@ def test_stale_feed_entries_are_not_reported_as_new_repeatedly(
     )
 
     with patch(
-        "core.feed_manager.fetch_and_parse",
-        return_value=("Example", [recent, stale]),
+        "core.feed_manager.fetch_and_parse_resolved",
+        return_value=("Example", [recent, stale], source.url),
     ):
         first_count = manager.refresh(source.id)
         second_count = manager.refresh(source.id)
@@ -63,8 +62,8 @@ def test_stale_only_feed_reports_zero_new_items(manager: FeedManager) -> None:
     )
 
     with patch(
-        "core.feed_manager.fetch_and_parse",
-        return_value=("Example", [stale]),
+        "core.feed_manager.fetch_and_parse_resolved",
+        return_value=("Example", [stale], source.url),
     ):
         assert manager.refresh(source.id) == 0
 
