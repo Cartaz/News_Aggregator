@@ -103,7 +103,7 @@ async function loadSnapshot({ reloadItems = false } = {}) {
   if (reloadItems) await loadItems();
 }
 
-async function loadItems() {
+async function loadItems({ syncSnapshot = true } = {}) {
   const response = await bridgeCall('getItems', state.scope.type, state.scope.id, 300);
   if (!response?.ok) {
     showToast('Articoli non disponibili', response?.message || 'Errore sconosciuto');
@@ -111,6 +111,16 @@ async function loadItems() {
   }
   state.items = response.data || [];
   if (state.selectedItemId && !state.items.some((item) => item.id === state.selectedItemId)) state.selectedItemId = null;
+
+  // getItems e getSnapshot sono due chiamate separate. Durante un refresh
+  // un feed può avere già nuovi articoli mentre la sidebar mostra ancora
+  // lo snapshot precedente. Riallineiamo i badge subito dopo aver letto
+  // gli articoli, così contatori e lista rappresentano lo stesso stato.
+  if (syncSnapshot) {
+    const snapshot = await bridgeCall('getSnapshot');
+    if (snapshot?.ok) applySnapshot(snapshot);
+  }
+
   applyFilters();
 }
 
