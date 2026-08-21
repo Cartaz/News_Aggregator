@@ -134,3 +134,28 @@ def test_refresh_all_with_empty(manager: FeedManager) -> None:
     result = manager.refresh_all()
     assert result["success"] == 0
     assert result["failed"] == 0
+
+
+def test_refresh_all_progress_counts_completed_feeds(manager: FeedManager) -> None:
+    """Il progresso deve avanzare solo dopo che ciascun feed è terminato."""
+    first = manager.add("https://example.com/one.xml")
+    second = manager.add("https://example.com/two.xml")
+    progress: list[tuple[str, int, int]] = []
+
+    with patch.object(
+        manager,
+        "refresh",
+        side_effect=[0, FeedError("boom")],
+    ):
+        result = manager.refresh_all(
+            lambda source_id, completed, total: progress.append(
+                (source_id, completed, total)
+            )
+        )
+
+    assert progress == [
+        (first.id, 1, 2),
+        (second.id, 2, 2),
+    ]
+    assert result["success"] == 1
+    assert result["failed"] == 1
