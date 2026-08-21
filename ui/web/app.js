@@ -185,7 +185,7 @@ function bindEvents() {
     if (!(event.ctrlKey || event.metaKey)) return;
     const key = event.key.toLowerCase();
     if (key === 'f') { event.preventDefault(); els['search-input'].focus(); }
-    else if (key === 'n') { event.preventDefault(); openAddFeedModal); }
+    else if (key === 'n') { event.preventDefault(); openAddFeedModal(); }
     else if (key === 'r' && event.shiftKey) { event.preventDefault(); refreshCurrentFeed(); }
     else if (key === 'r') { event.preventDefault(); refreshAll(); }
     else if (key === 'd') { event.preventDefault(); openRemoveFeedModal(); }
