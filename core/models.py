@@ -81,7 +81,8 @@ class FeedSource:
     """Sorgente feed RSS/Atom aggiunta dall'utente.
 
     Attributes:
-        url: URL del feed.
+        url: URL originale inserito dall'utente. Rimane stabile e determina
+            l'ID della sorgente.
         title: Titolo del feed (estratto o personalizzato).
         enabled: Se True, il feed viene aggiornato automaticamente.
         last_updated: Timestamp dell'ultimo aggiornamento riuscito.
@@ -89,6 +90,9 @@ class FeedSource:
         items: Lista articoli correnti (più recenti per primi).
         category: Nome della cartella/categoria a cui appartiene; vuoto
             se il feed non è assegnato ad alcuna categoria.
+        resolved_feed_url: URL RSS/Atom scoperto a partire da ``url``. È una
+            cache opzionale: non cambia l'identità della sorgente e può essere
+            invalidata se il feed risolto smette di funzionare.
     """
 
     url: str
@@ -98,10 +102,11 @@ class FeedSource:
     last_error: str = ""
     items: list[FeedItem] = field(default_factory=list)
     category: str = ""
+    resolved_feed_url: str = ""
 
     @property
     def id(self) -> str:
-        """ID stabile derivato dall'URL."""
+        """ID stabile derivato dall'URL originale, non dalla cache risolta."""
         return _make_feed_id(self.url)
 
     @property
@@ -123,7 +128,6 @@ class FeedSource:
         brand_new: list[FeedItem] = []
         for item in new_items:
             if item.id in previous_ids:
-                # Preserve read state
                 old = previous_ids[item.id]
                 new_list.append(
                     FeedItem(
