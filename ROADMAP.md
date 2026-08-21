@@ -61,20 +61,24 @@ Questa roadmap raccoglie i miglioramenti tecnici pianificati dopo il completamen
 
 **Criterio di completamento:** nessun livello UI deve decidere autonomamente se un refresh è attivo o quale sia il suo progresso; tali dati provengono esclusivamente dallo snapshot del controller.
 
-### B2. Identità e deduplicazione articoli — PROSSIMO
+### B2. Identità e deduplicazione articoli — COMPLETATO
 
-Strategia prevista:
+Strategia implementata:
 
 1. GUID stabile del feed, se presente;
 2. URL canonico normalizzato;
 3. fallback hash `source + title + published`.
 
-- [ ] Conservare GUID RSS/Atom nel parsing.
-- [ ] Normalizzare URL e parametri di tracking quando sicuro.
-- [ ] Migrazione compatibile degli ID già salvati.
-- [ ] Test per feed che cambiano link/GUID tra refresh.
+- [x] Conservare GUID RSS/Atom nel parsing e nella persistenza.
+- [x] Normalizzare schema/host, fragment e parametri di tracking noti.
+- [x] Migrazione compatibile degli ID già salvati preservando `read`.
+- [x] Deduplicare entry duplicate già in fase di parsing/replace.
+- [x] Supportare item senza link quando hanno GUID o data stabile.
+- [x] Test per GUID stabile, link cambiato, tracking URL, vecchi ID e JSON precedenti.
 
-### B3. Test end-to-end WebEngine — PIANIFICATO
+**Criterio di completamento:** variazioni non sostanziali dell'URL o del permalink non devono trasformare un articolo già visto in un nuovo articolo, e il passaggio dal vecchio schema ID non deve perdere lo stato letto/non letto.
+
+### B3. Test end-to-end WebEngine — PROSSIMO
 
 - [ ] Avvio reale `QWebEngineView` in ambiente test.
 - [ ] Refresh globale `0/N → N/N` e riabilitazione pulsante.
@@ -126,7 +130,7 @@ Dipende da C1.
 2. A2 — ETag / Last-Modified ✅
 3. A3 — refresh concorrente limitato ✅
 4. B1 — stato refresh centralizzato ✅
-5. B2 — deduplicazione robusta
+5. B2 — deduplicazione robusta ✅
 6. B3 — test end-to-end
 7. B4 — CI
 8. pausa di utilizzo e misurazione
