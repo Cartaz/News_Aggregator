@@ -29,8 +29,8 @@ class FeedItem:
     summary: str
     published: datetime
     author: str = ""
-    guid: str = ""
     read: bool = False
+    guid: str = ""
 
     @classmethod
     def from_raw(
