@@ -138,20 +138,11 @@ function bindBackendSignals() {
     catch { /* ignore malformed backend event */ }
   });
 
-  // Progress is intentionally NOT driven by refreshProgress anymore. Python
-  // stores current/total in getSnapshot(), and the UI renders those values.
-  // This removes ordering races between queued WebChannel signals.
-
   state.backend.refreshFinished.connect(async (raw) => {
     let result = null;
     try { result = JSON.parse(raw); } catch { /* ignore */ }
 
     if (result?.scope === 'all') {
-      if (state.refresh.running) {
-        state.refresh.current = state.refresh.total;
-        state.refresh.manualSeenRunning = true;
-        updateRefreshProgress();
-      }
       const message = result.failed
         ? `${result.success || 0} riusciti, ${result.failed} falliti`
         : `${result.success || 0} feed aggiornati`;
@@ -164,7 +155,6 @@ function bindBackendSignals() {
     }
 
     await loadSnapshot({ reloadItems: true });
-    window.setTimeout(() => loadSnapshot(), 180);
   });
 
   state.backend.backendEvent.connect(async (raw) => {
@@ -172,8 +162,11 @@ function bindBackendSignals() {
       const event = JSON.parse(raw);
       if (event.event === 'feed_refresh_failed') {
         showToast('Feed non aggiornato', event.payload?.error || 'Errore di rete');
-      } else if (event.event === 'feed_refresh_completed') {
-        if (!state.refresh.running) await loadItems();
+      } else if (
+        event.event === 'feed_refresh_completed'
+        && !state.snapshot?.refreshing?.active
+      ) {
+        await loadItems();
       }
     } catch { /* ignore */ }
   });
