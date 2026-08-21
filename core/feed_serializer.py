@@ -16,14 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 def serialize_source(source: FeedSource) -> dict[str, Any]:
-    """Serializza una ``FeedSource`` in dict JSON-compatibile.
-
-    Args:
-        source: Sorgente da serializzare.
-
-    Returns:
-        Rappresentazione dict pronta per ``json.dumps``.
-    """
+    """Serializza una ``FeedSource`` in dict JSON-compatibile."""
     return {
         "url": source.url,
         "title": source.title,
@@ -33,6 +26,7 @@ def serialize_source(source: FeedSource) -> dict[str, Any]:
         else None,
         "last_error": source.last_error,
         "category": source.category,
+        "resolved_feed_url": source.resolved_feed_url,
         "items": [_serialize_item(it) for it in source.items],
     }
 
@@ -54,15 +48,8 @@ def _serialize_item(item: FeedItem) -> dict[str, Any]:
 def deserialize_source(data: dict[str, Any]) -> FeedSource:
     """Deserializza una ``FeedSource`` da dict JSON.
 
-    Args:
-        data: Dict letto da ``json.loads``.
-
-    Returns:
-        Istanza di ``FeedSource``.
-
-    Raises:
-        KeyError: Se mancano campi obbligatori.
-        ValueError: Se i tipi non sono validi.
+    I file creati prima dell'introduzione della cache URL restano validi:
+    ``resolved_feed_url`` è opzionale e per default è vuoto.
     """
     source: FeedSource = FeedSource(
         url=data["url"],
@@ -70,6 +57,7 @@ def deserialize_source(data: dict[str, Any]) -> FeedSource:
         enabled=data.get("enabled", True),
         last_error=data.get("last_error", ""),
         category=data.get("category", ""),
+        resolved_feed_url=data.get("resolved_feed_url", ""),
     )
     last_str: str | None = data.get("last_updated")
     if last_str:
