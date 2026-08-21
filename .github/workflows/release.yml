@@ -1,0 +1,48 @@
+name: Publish release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Publish tagged release
+    if: startsWith(github.event.head_commit.message, '[release] ')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_MESSAGE: ${{ github.event.head_commit.message }}
+    steps:
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          tag="${RELEASE_MESSAGE#\[release\] }"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release tag: $tag" >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub release
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          tag="${{ steps.release.outputs.tag }}"
+          version="${{ steps.release.outputs.version }}"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $tag already exists; nothing to do."
+            exit 0
+          fi
+          gh release create "$tag" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "News Aggregator $version" \
+            --generate-notes \
+            --latest
