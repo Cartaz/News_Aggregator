@@ -83,34 +83,12 @@ function clearDetail() {
 }
 
 async function refreshAll() {
-  const enabledFeeds = state.snapshot?.feeds?.filter((feed) => feed.enabled) || [];
-
-  if (state.refresh.hideTimer !== null) {
-    window.clearTimeout(state.refresh.hideTimer);
-  }
-
-  state.refresh = {
-    running: true,
-    current: 0,
-    total: enabledFeeds.length,
-    manualSeenRunning: false,
-    hideTimer: null,
-  };
-  els['refresh-fill'].dataset.total = '';
-  els['refresh-fill'].replaceChildren();
-  els['refresh-all-btn'].disabled = true;
-  updateRefreshProgress();
-
   const response = await bridgeCall('refreshAll');
   if (!response?.ok) {
-    state.refresh.running = false;
-    state.refresh.manualSeenRunning = false;
-    updateRefreshProgress();
     await loadSnapshot();
     showToast('Aggiornamento non avviato', response?.message || '');
     return;
   }
-
   await loadSnapshot();
 }
 
@@ -155,13 +133,14 @@ function ensureRefreshSegments(total) {
   }
 }
 
-function updateRefreshProgress() {
+function updateRefreshProgress(refreshState = state.snapshot?.refreshing) {
   const track = els['refresh-track'];
-  track.hidden = !state.refresh.running;
-  if (!state.refresh.running) return;
+  const visible = Boolean(refreshState?.active && refreshState.scope === 'all');
+  track.hidden = !visible;
+  if (!visible) return;
 
-  const total = Math.max(0, Number(state.refresh.total) || 0);
-  const completed = Math.max(0, Math.min(total, Number(state.refresh.current) || 0));
+  const total = Math.max(0, Number(refreshState.total) || 0);
+  const completed = Math.max(0, Math.min(total, Number(refreshState.current) || 0));
   ensureRefreshSegments(total);
 
   [...els['refresh-fill'].children].forEach((segment, index) => {
