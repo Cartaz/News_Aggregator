@@ -69,9 +69,8 @@ def main() -> int:
     window = WebMainWindow(controller)
     tray = TrayIcon(window)
 
-    tray.showWindowRequested.connect(window.showNormal)
-    tray.showWindowRequested.connect(window.raise_)
-    tray.showWindowRequested.connect(window.activateWindow)
+    tray.showWindowRequested.connect(window.restore_from_tray)
+    tray.messageClicked.connect(window.restore_from_tray)
     tray.refreshAllRequested.connect(window.bridge.refreshAll)
     tray.quitRequested.connect(window.force_quit)
     window.bridge.unreadCountChanged.connect(tray.set_unread_count)
