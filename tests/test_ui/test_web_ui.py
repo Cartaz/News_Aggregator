@@ -59,25 +59,28 @@ def test_refresh_ui_recovers_from_missed_finish_signal() -> None:
     articles_js = (WEB_ROOT / "articles.js").read_text(encoding="utf-8")
     app_js = (WEB_ROOT / "app.js").read_text(encoding="utf-8")
 
-    assert "backendSeenRunning" in state_js
-    assert "state.refresh.backendSeenRunning" in state_js
+    assert "function scheduleRefreshStatePoll(active)" in state_js
+    assert "scheduleRefreshStatePoll(backendBusy);" in state_js
+    assert "els['refresh-all-btn'].disabled = backendBusy;" in state_js
     assert "&& !backendGlobalRunning" in state_js
-    assert "updateRefreshProgress();" in state_js
-    assert "backendSeenRunning: true" in articles_js
-    assert "state.refresh.backendSeenRunning = true;" in app_js
-    assert "state.refresh.backendSeenRunning = false;" in app_js
+    assert "backendSeenRunning: false" in articles_js
+    assert "window.setTimeout(() => loadSnapshot(), 180);" in app_js
 
 
-def test_segmented_refresh_progress_is_visible_and_event_driven() -> None:
+def test_segmented_refresh_progress_is_monotonic_and_stale_safe() -> None:
     articles_js = (WEB_ROOT / "articles.js").read_text(encoding="utf-8")
     app_js = (WEB_ROOT / "app.js").read_text(encoding="utf-8")
 
     assert "function ensureRefreshSegments(total)" in articles_js
     assert "rgba(255,102,0,.22)" in articles_js
     assert "inset 0 0 0 1px rgba(255,102,0,.20)" in articles_js
-    assert "function recordCompletedRefreshFeed(sourceId)" in app_js
-    assert "recordCompletedRefreshFeed(event.payload?.source_id);" in app_js
-    assert "state.refresh.completedFeedIds" in app_js
+    assert "els['refresh-fill'].dataset.total = '';" in articles_js
+    assert "const response = await bridgeCall('refreshAll');" in articles_js
+    assert "if (!state.refresh.running) return;" in app_js
+    assert "state.refresh.current = Math.max(" in app_js
+    assert "state.refresh.running = true;" not in app_js
+    assert "recordCompletedRefreshFeed" not in app_js
+    assert "if (!state.refresh.running) await loadItems();" in app_js
 
 
 def test_bridge_normalizes_user_urls() -> None:
