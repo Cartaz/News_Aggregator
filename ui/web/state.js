@@ -89,6 +89,8 @@ function applySnapshot(snapshot) {
   state.showUnreadOnly = Boolean(snapshot.data.settings.show_unread_only);
   els['unread-toggle'].checked = state.showUnreadOnly;
   els['app-name'].textContent = snapshot.data.app.name;
+  const refreshState = snapshot.data.refreshing || { all: false, feeds: [] };
+  els['refresh-all-btn'].disabled = state.refresh.running || Boolean(refreshState.all) || (refreshState.feeds || []).length > 0;
   document.documentElement.style.setProperty('--font-scale', String(snapshot.data.settings.font_scale_factor || 1));
   document.documentElement.style.setProperty('--sidebar-width', `${Math.max(240, Math.min(480, snapshot.data.settings.source_split_width || 280))}px`);
   renderSources();
@@ -199,7 +201,7 @@ function renderSelectedFeedActions() {
   els['selected-feed-title'].textContent = feed.title;
   if (feed.lastError) els['selected-feed-status'].textContent = `Errore: ${feed.lastError}`;
   else els['selected-feed-status'].textContent = feed.lastUpdated ? `Aggiornato ${formatDate(feed.lastUpdated)}` : 'Mai aggiornato';
-  const refreshing = Boolean(state.snapshot?.refreshing?.feeds?.includes(feed.id));
+  const refreshing = Boolean(state.snapshot?.refreshing?.all || state.snapshot?.refreshing?.feeds?.includes(feed.id));
   els['refresh-feed-btn'].disabled = refreshing;
   els['refresh-feed-btn'].textContent = refreshing ? 'In corso…' : 'Aggiorna';
 }
