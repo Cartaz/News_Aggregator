@@ -92,6 +92,19 @@ def test_segmented_refresh_progress_is_visible() -> None:
     assert "state.refresh.current" in articles_js
 
 
+def test_arrow_keys_navigate_filtered_articles_safely() -> None:
+    app_js = (WEB_ROOT / "app.js").read_text(encoding="utf-8")
+
+    assert "function canNavigateArticlesWithArrows(target)" in app_js
+    assert "async function navigateArticleSelection(direction)" in app_js
+    assert "const items = state.filteredItems;" in app_js
+    assert "event.key === 'ArrowUp' || event.key === 'ArrowDown'" in app_js
+    assert "void navigateArticleSelection(event.key === 'ArrowDown' ? 1 : -1);" in app_js
+    assert "target.matches('input, textarea, select')" in app_js
+    assert "target.isContentEditable" in app_js
+    assert "selectedRow.scrollIntoView({ block: 'nearest', behavior: 'auto' });" in app_js
+
+
 def test_bridge_normalizes_user_urls() -> None:
     pytest.importorskip("PySide6")
     from ui.bridge import WebBridge
