@@ -14,87 +14,59 @@ Questa roadmap raccoglie i miglioramenti tecnici pianificati dopo il completamen
 
 ### A1. Cache dell'URL RSS/Atom risolto — COMPLETATO
 
-**Obiettivo:** evitare di scaricare la homepage e rifare l'auto-discovery a ogni refresh.
-
-- [x] Aggiungere alla sorgente un `resolved_feed_url` persistente.
-- [x] Usare direttamente il feed risolto nei refresh successivi.
-- [x] Se il feed cached fallisce, invalidare la cache e rifare l'auto-discovery dall'URL originale.
-- [x] Aggiornare automaticamente la cache quando viene scoperto un nuovo URL valido.
-- [x] Mantenere compatibilità con i file JSON esistenti.
-- [x] Aggiungere test di persistenza, uso cache e fallback.
-
-**Criterio di completamento:** dopo il primo refresh di una homepage, i refresh successivi non devono richiedere nuovamente la homepage finché il feed risolto resta valido.
+- [x] Cache persistente `resolved_feed_url`, fallback e compatibilità JSON.
+- [x] Test di persistenza, uso cache e rediscovery.
 
 ### A2. HTTP condizionale (`ETag` / `Last-Modified`) — COMPLETATO
 
-- [x] Persistenza dei validator HTTP per sorgente/feed risolto.
-- [x] Invio di `If-None-Match` / `If-Modified-Since`.
-- [x] Gestione `304 Not Modified` senza parsing inutile.
-- [x] Invalidazione validator quando cambia `resolved_feed_url`.
-- [x] Retry non condizionale se un server rifiuta validator precedentemente validi.
-- [x] Test con risposte 200/304, persistenza e validator cambiati.
-
-**Criterio di completamento:** quando un server supporta validator HTTP, un feed invariato deve poter completare il refresh con `304 Not Modified` senza trasferire né riparsare il documento RSS/Atom.
+- [x] Validator persistenti, richieste condizionali e `304 Not Modified`.
+- [x] Invalidazione/retry e test 200/304.
 
 ### A3. Refresh concorrente limitato — COMPLETATO
 
-- [x] Pool conservativo di 4 worker massimi.
-- [x] Una sola task per sorgente nel batch globale.
-- [x] Progresso globale ancora espresso come feed completati / feed totali.
-- [x] Errori isolati per sorgente, inclusi errori inattesi.
-- [x] Shutdown pulito dei worker al termine del ciclo tramite context manager dell'executor.
-- [x] Persistenza JSON serializzata durante i completamenti concorrenti.
-- [x] Test su concorrenza, limite worker, successo, errore e progresso fuori ordine.
-
-**Criterio di completamento:** più feed devono potersi aggiornare in parallelo senza superare quattro richieste concorrenti; il progresso deve avanzare una volta per feed completato e il pool non deve lasciare worker attivi al termine.
+- [x] Massimo 4 worker e una task per sorgente.
+- [x] Progresso completati/totale, errori isolati e shutdown pulito.
+- [x] Persistenza serializzata e test di concorrenza.
 
 ## Fase B — Robustezza e qualità
 
 ### B1. Stato operativo centralizzato nel controller — COMPLETATO
 
-- [x] Un solo modello `RefreshState` per refresh globale e singolo feed.
-- [x] `AppController` sorgente di verità per `active/current/total` e feed attivi.
-- [x] `WebBridge` ridotto ad adapter/serializzatore dello snapshot controller.
-- [x] Rimossi i duplicati operativi di stato dal JavaScript.
-- [x] Guard dei refresh sovrapposti spostato nel controller.
-- [x] Test del lifecycle asincrono globale e singolo.
-
-**Criterio di completamento:** nessun livello UI deve decidere autonomamente se un refresh è attivo o quale sia il suo progresso; tali dati provengono esclusivamente dallo snapshot del controller.
+- [x] Un solo `RefreshState` per refresh globale e singolo.
+- [x] `AppController` sorgente di verità per stato/progresso/feed attivi.
+- [x] Bridge e JavaScript ridotti a adapter/renderer.
+- [x] Guard dei refresh sovrapposti nel controller e test lifecycle.
 
 ### B2. Identità e deduplicazione articoli — COMPLETATO
 
-Strategia implementata:
-
-1. GUID stabile del feed, se presente;
+1. GUID stabile, se presente;
 2. URL canonico normalizzato;
-3. fallback hash `source + title + published`.
+3. fallback `source + title + published`.
 
-- [x] Conservare GUID RSS/Atom nel parsing e nella persistenza.
-- [x] Normalizzare schema/host, fragment e parametri di tracking noti.
-- [x] Migrazione compatibile degli ID già salvati preservando `read`.
-- [x] Deduplicare entry duplicate già in fase di parsing/replace.
-- [x] Supportare item senza link quando hanno GUID o data stabile.
-- [x] Test per GUID stabile, link cambiato, tracking URL, vecchi ID e JSON precedenti.
+- [x] GUID persistito e normalizzazione URL/tracking.
+- [x] Migrazione compatibile dei vecchi ID preservando `read`.
+- [x] Deduplicazione parser/replace e test di regressione.
 
-**Criterio di completamento:** variazioni non sostanziali dell'URL o del permalink non devono trasformare un articolo già visto in un nuovo articolo, e il passaggio dal vecchio schema ID non deve perdere lo stato letto/non letto.
+### B3. Test end-to-end WebEngine — COMPLETATO
 
-### B3. Test end-to-end WebEngine — PROSSIMO
+- [x] Avvio reale `QWebEngineView` + `QWebChannel` in ambiente test.
+- [x] Refresh globale controllato `0/N → N/N` e riabilitazione pulsante.
+- [x] Filtro non letti + cambio articolo.
+- [x] Navigazione tastiera ↑/↓ sul frontend reale.
+- [x] Aggiunta, modifica e rimozione feed tramite UI reale.
+- [x] Errore di input verificato come feedback visibile all'utente.
+- [x] Test isolati dalla rete con backend/storage temporanei.
 
-- [ ] Avvio reale `QWebEngineView` in ambiente test.
-- [ ] Refresh globale `0/N → N/N` e riabilitazione pulsante.
-- [ ] Filtro non letti + cambio articolo.
-- [ ] Navigazione tastiera ↑/↓.
-- [ ] Aggiunta/modifica/rimozione feed principali.
-- [ ] Test degli errori mostrati all'utente.
+**Criterio di completamento:** i flussi UI critici devono essere eseguiti dal JavaScript reale dentro QtWebEngine e verificati osservando DOM e stato del core, non solo tramite contratti statici.
 
-### B4. Continuous Integration — PIANIFICATO
+### B4. Continuous Integration — PROSSIMO
 
 - [ ] GitHub Actions su push/PR.
 - [ ] `pytest`.
 - [ ] controllo sintassi Python.
 - [ ] `node --check` frontend.
 - [ ] test installer e contratti UI.
-- [ ] eventuale job WebEngine headless separato.
+- [ ] job WebEngine headless separato.
 
 ## Fase C — Evoluzione dello storage
 
@@ -131,7 +103,7 @@ Dipende da C1.
 3. A3 — refresh concorrente limitato ✅
 4. B1 — stato refresh centralizzato ✅
 5. B2 — deduplicazione robusta ✅
-6. B3 — test end-to-end
+6. B3 — test end-to-end ✅
 7. B4 — CI
 8. pausa di utilizzo e misurazione
 9. C1/C2 solo se giustificati dai dati
