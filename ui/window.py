@@ -84,6 +84,7 @@ class WebMainWindow(QMainWindow):
             return
         self._controller.shutdown()
         event.accept()
+        QApplication.quit()
 
 
 __all__ = ["WebMainWindow"]
