@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import threading
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -23,11 +22,10 @@ logger = logging.getLogger(__name__)
 
 
 class WebBridge(QObject):
-    """Small presentation adapter exposed to JavaScript through QWebChannel."""
+    """Presentation adapter exposed to JavaScript through QWebChannel."""
 
     stateChanged = Signal(str)
     backendEvent = Signal(str)
-    refreshProgress = Signal(str)
     refreshFinished = Signal(str)
     unreadCountChanged = Signal(int)
     newItemsDetected = Signal(int, str)
@@ -35,7 +33,6 @@ class WebBridge(QObject):
     requestHide = Signal()
 
     _eventRelay = Signal(str)
-    _progressRelay = Signal(str)
     _finishRelay = Signal(str)
 
     _EVENTS = (
@@ -46,6 +43,7 @@ class WebBridge(QObject):
         "feed_refresh_started",
         "feed_refresh_completed",
         "feed_refresh_failed",
+        "refresh_state_changed",
         "new_items_available",
         "item_read_changed",
         "config_changed",
@@ -55,13 +53,7 @@ class WebBridge(QObject):
         super().__init__(parent)
         self._controller = controller
         self._bus = EventBus()
-        self._refresh_lock = threading.Lock()
-        self._refreshing_all = False
-        self._refresh_current = 0
-        self._refresh_total = 0
-        self._refreshing_feeds: set[str] = set()
         self._eventRelay.connect(self._deliver_event, Qt.ConnectionType.QueuedConnection)
-        self._progressRelay.connect(self._deliver_progress, Qt.ConnectionType.QueuedConnection)
         self._finishRelay.connect(self._deliver_finish, Qt.ConnectionType.QueuedConnection)
         for event_name in self._EVENTS:
             self._bus.subscribe(event_name, self._make_event_handler(event_name))
@@ -94,14 +86,6 @@ class WebBridge(QObject):
                 QTimer.singleShot(100, self._emit_state)
         except Exception:
             logger.debug("Impossibile elaborare evento WebChannel", exc_info=True)
-
-    @Slot(str)
-    def _deliver_progress(self, raw: str) -> None:
-        # Keep the legacy signal for compatibility, but the snapshot is now the
-        # authoritative progress source. Emitting state here guarantees one
-        # main-thread snapshot after each feed completion.
-        self.refreshProgress.emit(raw)
-        self._emit_state()
 
     @Slot(str)
     def _deliver_finish(self, raw: str) -> None:
@@ -159,16 +143,6 @@ class WebBridge(QObject):
     def getSnapshot(self) -> str:
         try:
             feeds = self._controller.get_all_feeds()
-            settings = asdict(self._controller.settings)
-            core_thread = getattr(self._controller, "_refresh_thread", None)
-            with self._refresh_lock:
-                manual_refresh_running = self._refreshing_all
-                refresh_current = self._refresh_current
-                refresh_total = self._refresh_total
-                refreshing_feeds = sorted(self._refreshing_feeds)
-            global_refresh_running = manual_refresh_running or bool(
-                core_thread and core_thread.is_alive()
-            )
             data = {
                 "app": {
                     "name": AppMeta.DISPLAY_NAME,
@@ -178,14 +152,8 @@ class WebBridge(QObject):
                 "feeds": [self._serialize_feed(feed) for feed in feeds],
                 "categories": self._controller.get_categories(),
                 "unreadCount": self._controller.get_total_unread_count(),
-                "settings": settings,
-                "refreshing": {
-                    "all": global_refresh_running,
-                    "manualAll": manual_refresh_running,
-                    "current": refresh_current,
-                    "total": refresh_total,
-                    "feeds": refreshing_feeds,
-                },
+                "settings": asdict(self._controller.settings),
+                "refreshing": self._controller.get_refresh_state(),
             }
             return self._ok(data)
         except Exception as exc:
@@ -258,19 +226,7 @@ class WebBridge(QObject):
 
     @Slot(str, result=str)
     def refreshFeed(self, source_id: str) -> str:
-        with self._refresh_lock:
-            core_thread = getattr(self._controller, "_refresh_thread", None)
-            if (
-                self._refreshing_all
-                or source_id in self._refreshing_feeds
-                or (core_thread and core_thread.is_alive())
-            ):
-                return self._error("Aggiornamento già in corso")
-            self._refreshing_feeds.add(source_id)
-
         def done(success: bool, message: str) -> None:
-            with self._refresh_lock:
-                self._refreshing_feeds.discard(source_id)
             self._finishRelay.emit(self._json({
                 "scope": "feed",
                 "sourceId": source_id,
@@ -278,38 +234,22 @@ class WebBridge(QObject):
                 "message": message,
             }))
 
-        self._controller.refresh_feed_async(source_id, done)
+        if not self._controller.refresh_feed_async(source_id, done):
+            return self._error("Aggiornamento già in corso")
         self._emit_state()
         return self._ok(message="Aggiornamento avviato")
 
     @Slot(result=str)
     def refreshAll(self) -> str:
-        enabled_total = sum(1 for feed in self._controller.get_all_feeds() if feed.enabled)
-        with self._refresh_lock:
-            core_thread = getattr(self._controller, "_refresh_thread", None)
-            if self._refreshing_all or self._refreshing_feeds or (core_thread and core_thread.is_alive()):
-                return self._error("Aggiornamento già in corso")
-            self._refreshing_all = True
-            self._refresh_current = 0
-            self._refresh_total = enabled_total
-
-        def progress(source_id: str, current: int, total: int) -> None:
-            with self._refresh_lock:
-                self._refresh_current = max(self._refresh_current, int(current))
-                self._refresh_total = max(self._refresh_total, int(total))
-            self._progressRelay.emit(self._json({
-                "sourceId": source_id,
-                "current": current,
-                "total": total,
+        def done(result: dict[str, Any]) -> None:
+            self._finishRelay.emit(self._json({
+                "scope": "all",
+                "ok": result.get("failed", 0) == 0,
+                **result,
             }))
 
-        def done(result: dict[str, Any]) -> None:
-            with self._refresh_lock:
-                self._refresh_current = self._refresh_total
-                self._refreshing_all = False
-            self._finishRelay.emit(self._json({"scope": "all", "ok": result.get("failed", 0) == 0, **result}))
-
-        self._controller.refresh_all_async(done, progress)
+        if not self._controller.refresh_all_async(done):
+            return self._error("Aggiornamento già in corso")
         self._emit_state()
         return self._ok(message="Aggiornamento globale avviato")
 
@@ -356,7 +296,6 @@ class WebBridge(QObject):
 
     @Slot(int, result=str)
     def getLogTail(self, max_lines: int = 250) -> str:
-        """Return a bounded tail of the real application log for diagnostics."""
         try:
             max_lines = max(20, min(int(max_lines), 1000))
             if not Paths.LOG_FILE.exists():
