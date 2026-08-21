@@ -1,53 +1,46 @@
 """Centralized Dark Neumorphism design tokens.
 
-The visible application background is exactly ``rgb(20, 20, 20)`` /
-``#141414``.
-
-Depth is not simulated by 1 px QSS bevels.  Real multi-layer inset/outset
-shadows are rendered by :mod:`ui.styles.box_shadow_effect`, a pure-PySide6
-``QGraphicsEffect`` implementation.
-
-Geometry tokens intentionally match the stable application baseline.
+The theme intentionally contains no application logic. Geometry tokens mirror the
+stable UI baseline; rendering tokens only control how the same rectangles are
+painted. The single interaction accent is #FF6600.
 """
 
 from __future__ import annotations
 
 
 class ThemeColors:
-    """Semantic palette for the single dark-neumorphic theme."""
+    """Semantic palette for the dark-neumorphic theme."""
 
     PRIMARY: str = "#FF6600"
-    PRIMARY_DARK: str = "#CC5200"
+    PRIMARY_DARK: str = "#C94F00"
     PRIMARY_SOFT: str = "#FF8A3D"
 
     DANGER: str = "#E56A65"
     DANGER_DARK: str = "#B04F4B"
     GOOD: str = "#55C98F"
 
-    # Mandatory base material.
+    # Keep the established dark base; depth is created by neighbouring shades.
     BG_MAIN: str = "#141414"
+    BG_CARD: str = "#191C20"
+    BG_ELEVATED: str = "#1E2227"
+    BG_INPUT: str = "#16191D"
+    BG_HOVER: str = "#20242A"
+    BG_TOOLTIP: str = "#1E2227"
+    BG_SELECTION: str = "#332218"
 
-    # Surfaces are intentionally close to the base. Light/shadow creates shape.
-    BG_CARD: str = "#181818"
-    BG_ELEVATED: str = "#1B1B1B"
-    BG_INPUT: str = "#171717"
-    BG_HOVER: str = "#1D1D1D"
-    BG_TOOLTIP: str = "#1B1B1B"
-    BG_SELECTION: str = "#3A2518"
-
-    SURFACE_HIGH: str = "#1E1E1E"
-    SURFACE_MID: str = "#191919"
-    SURFACE_LOW: str = "#161616"
+    SURFACE_HIGH: str = "#22272C"
+    SURFACE_MID: str = "#1B1F23"
+    SURFACE_LOW: str = "#15181B"
 
     # One virtual light source: upper-left.
-    SHADOW_LIGHT: str = "#3A3A3A"
-    SHADOW_LIGHT_SOFT: str = "#303030"
-    SHADOW_DARK: str = "#000000"
-    SHADOW_DARK_SOFT: str = "#050505"
+    SHADOW_LIGHT: str = "#30363D"
+    SHADOW_LIGHT_SOFT: str = "#282E34"
+    SHADOW_DARK: str = "#090B0D"
+    SHADOW_DARK_SOFT: str = "#0D0F12"
 
-    BORDER: str = "#242424"
-    BORDER_DARK: str = "#080808"
-    BORDER_SUBTLE: str = "#202020"
+    BORDER: str = "#252A30"
+    BORDER_DARK: str = "#0E1013"
+    BORDER_SUBTLE: str = "#20252A"
     BORDER_FOCUS: str = PRIMARY
 
     TEXT_PRIMARY: str = "#ECEFF1"
@@ -72,7 +65,7 @@ class ThemeFonts:
 
 
 class ThemeSpacing:
-    # Stable geometry tokens — deliberately unchanged.
+    # Stable geometry tokens — deliberately unchanged from the baseline.
     XS: int = 4
     SM: int = 8
     MD: int = 12
@@ -111,8 +104,8 @@ class ThemeTypography:
 
 
 class ThemeAnimation:
-    DURATION_FAST_MS: int = 150
-    DURATION_NORMAL_MS: int = 250
+    DURATION_FAST_MS: int = 140
+    DURATION_NORMAL_MS: int = 220
     DURATION_SLOW_MS: int = 300
 
     EASE_OUT: str = "OutCubic"
@@ -120,34 +113,40 @@ class ThemeAnimation:
 
 
 class ThemeDepth:
-    """Pure rendering tokens — no layout dimensions are defined here."""
+    """Rendering-only tokens. They never participate in layouts."""
 
-    # Raised control source is painted slightly inside its existing QWidget
-    # rect so the blurred lobes have room without changing the widget geometry.
     BUTTON_SURFACE_INSET: float = 5.0
-    BADGE_SURFACE_INSET: float = 2.5
+    BADGE_SURFACE_INSET: float = 3.0
 
-    BUTTON_BLUR: float = 8.0
-    BUTTON_OFFSET: float = 5.5
-    BUTTON_DARK_ALPHA: int = 215
-    BUTTON_LIGHT_ALPHA: int = 178
+    BUTTON_BLUR: float = 7.5
+    BUTTON_OFFSET: float = 3.5
+    BUTTON_DARK_ALPHA: int = 205
+    BUTTON_LIGHT_ALPHA: int = 150
 
-    BUTTON_HOVER_BLUR: float = 9.0
-    BUTTON_HOVER_OFFSET: float = 5.0
-    BUTTON_HOVER_DARK_ALPHA: int = 225
-    BUTTON_HOVER_LIGHT_ALPHA: int = 195
+    BUTTON_HOVER_BLUR: float = 8.5
+    BUTTON_HOVER_OFFSET: float = 3.5
+    BUTTON_HOVER_DARK_ALPHA: int = 218
+    BUTTON_HOVER_LIGHT_ALPHA: int = 176
 
-    BADGE_BLUR: float = 5.5
-    BADGE_OFFSET: float = 3.5
-    BADGE_DARK_ALPHA: int = 205
-    BADGE_LIGHT_ALPHA: int = 155
+    BADGE_BLUR: float = 5.0
+    BADGE_OFFSET: float = 2.5
+    BADGE_DARK_ALPHA: int = 185
+    BADGE_LIGHT_ALPHA: int = 130
 
-    INPUT_BLUR: float = 8.0
-    INPUT_OFFSET: float = 5.0
-    INPUT_DARK_ALPHA: int = 220
-    INPUT_LIGHT_ALPHA: int = 105
+    INPUT_DEPTH: float = 10.0
+    INPUT_DARK_ALPHA: int = 160
+    INPUT_LIGHT_ALPHA: int = 82
 
-    PANEL_BLUR: float = 11.0
-    PANEL_OFFSET: float = 6.0
-    PANEL_DARK_ALPHA: int = 190
-    PANEL_LIGHT_ALPHA: int = 85
+    PANEL_DEPTH: float = 14.0
+    PANEL_DARK_ALPHA: int = 138
+    PANEL_LIGHT_ALPHA: int = 68
+
+
+__all__ = [
+    "ThemeAnimation",
+    "ThemeColors",
+    "ThemeDepth",
+    "ThemeFonts",
+    "ThemeSpacing",
+    "ThemeTypography",
+]
