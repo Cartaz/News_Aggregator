@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -20,6 +21,8 @@ from core.app_controller import AppController
 from core.feed_manager import FeedManager
 from core.models import FeedItem
 from ui.window import WebMainWindow
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def js(qtbot, view, script: str, timeout: int = 5000) -> Any:  # type: ignore[no-untyped-def]
@@ -98,7 +101,7 @@ def test_native_restore_resyncs_stale_snapshot_and_items(qtbot, backend) -> None
 
 
 def test_main_routes_tray_restore_through_single_sync_path() -> None:
-    source = (Paths.PROJECT_ROOT / "main.py").read_text(encoding="utf-8")
+    source = (PROJECT_ROOT / "main.py").read_text(encoding="utf-8")
     assert "tray.showWindowRequested.connect(window.restore_from_tray)" in source
     assert "tray.messageClicked.connect(window.restore_from_tray)" in source
     assert "tray.showWindowRequested.connect(window.showNormal)" not in source
