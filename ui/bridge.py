@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 from PySide6.QtCore import QObject, Qt, Signal, Slot, QUrl
 from PySide6.QtGui import QDesktopServices
 
-from config.constants import AppMeta, FeedDefaults
+from config.constants import AppMeta, FeedDefaults, Paths
 from config.settings import Settings
 from core.app_controller import AppController
 from core.event_bus import EventBus
@@ -317,6 +317,19 @@ class WebBridge(QObject):
             self._controller.settings_manager.save()
             return self._ok(width)
         except Exception as exc:
+            return self._error(exc)
+
+    @Slot(int, result=str)
+    def getLogTail(self, max_lines: int = 250) -> str:
+        """Return a bounded tail of the real application log for diagnostics."""
+        try:
+            max_lines = max(20, min(int(max_lines), 1000))
+            if not Paths.LOG_FILE.exists():
+                return self._ok({"lines": [], "path": str(Paths.LOG_FILE)})
+            lines = Paths.LOG_FILE.read_text(encoding="utf-8", errors="replace").splitlines()
+            return self._ok({"lines": lines[-max_lines:], "path": str(Paths.LOG_FILE)})
+        except Exception as exc:
+            logger.warning("Lettura log fallita: %s", exc)
             return self._error(exc)
 
     @Slot(str, result=str)
