@@ -107,8 +107,17 @@ async function refreshCurrentFeed() {
 }
 
 function ensureRefreshSegments(total) {
+  const track = els['refresh-track'];
   const fill = els['refresh-fill'];
+
+  // Keep the empty progress bar visible as a real neumorphic control before
+  // the first feed completes. Previously pending segments used exactly the
+  // same surface as the track, making the whole bar effectively invisible.
+  track.style.background = 'var(--surface)';
+  track.style.boxShadow = 'var(--shadow-inset-small), 0 0 0 1px rgba(255,102,0,.22), 0 0 8px rgba(255,102,0,.10)';
+
   fill.style.width = '100%';
+  fill.style.height = '100%';
   fill.style.display = 'flex';
   fill.style.gap = total > 1 ? '2px' : '0';
   fill.style.background = 'transparent';
@@ -127,6 +136,7 @@ function ensureRefreshSegments(total) {
     segment.style.height = '100%';
     segment.style.borderRadius = '3px';
     segment.style.background = 'var(--surface)';
+    segment.style.boxShadow = 'inset 0 0 0 1px rgba(255,102,0,.20)';
     segment.style.transition = 'background 180ms ease, box-shadow 180ms ease';
     fill.appendChild(segment);
   }
@@ -143,7 +153,9 @@ function updateRefreshProgress() {
   [...els['refresh-fill'].children].forEach((segment, index) => {
     const done = index < completed;
     segment.style.background = done ? 'var(--accent)' : 'var(--surface)';
-    segment.style.boxShadow = done ? '0 0 8px rgba(255,102,0,.25)' : 'none';
+    segment.style.boxShadow = done
+      ? '0 0 7px rgba(255,102,0,.34)'
+      : 'inset 0 0 0 1px rgba(255,102,0,.20)';
   });
 
   const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
