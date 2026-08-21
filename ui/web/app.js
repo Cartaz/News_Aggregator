@@ -94,24 +94,9 @@ function bindBackendSignals() {
     catch { /* ignore malformed backend event */ }
   });
 
-  state.backend.refreshProgress.connect((raw) => {
-    try {
-      // A queued progress signal from an already finished run must never
-      // resurrect the bar. Only a refresh explicitly armed by refreshAll()
-      // is allowed to consume progress messages.
-      if (!state.refresh.running) return;
-      const progress = JSON.parse(raw);
-      state.refresh.backendSeenRunning = true;
-      const incomingTotal = Number(progress.total) || 0;
-      const incomingCurrent = Number(progress.current) || 0;
-      if (incomingTotal > 0) state.refresh.total = incomingTotal;
-      state.refresh.current = Math.max(
-        Number(state.refresh.current) || 0,
-        Math.min(state.refresh.total, incomingCurrent)
-      );
-      updateRefreshProgress();
-    } catch { /* ignore */ }
-  });
+  // Progress is intentionally NOT driven by refreshProgress anymore. Python
+  // stores current/total in getSnapshot(), and the UI renders those values.
+  // This removes ordering races between queued WebChannel signals.
 
   state.backend.refreshFinished.connect(async (raw) => {
     let result = null;
@@ -120,16 +105,8 @@ function bindBackendSignals() {
     if (result?.scope === 'all') {
       if (state.refresh.running) {
         state.refresh.current = state.refresh.total;
-        state.refresh.backendSeenRunning = true;
+        state.refresh.manualSeenRunning = true;
         updateRefreshProgress();
-        if (state.refresh.hideTimer !== null) {
-          window.clearTimeout(state.refresh.hideTimer);
-        }
-        state.refresh.hideTimer = window.setTimeout(() => {
-          state.refresh.running = false;
-          state.refresh.hideTimer = null;
-          updateRefreshProgress();
-        }, 320);
       }
       const message = result.failed
         ? `${result.success || 0} riusciti, ${result.failed} falliti`
@@ -143,9 +120,6 @@ function bindBackendSignals() {
     }
 
     await loadSnapshot({ reloadItems: true });
-    // The Python worker may still be unwinding while its done callback runs.
-    // Polling plus this delayed confirmation guarantees the button sees the
-    // final non-busy backend state.
     window.setTimeout(() => loadSnapshot(), 180);
   });
 
@@ -155,9 +129,6 @@ function bindBackendSignals() {
       if (event.event === 'feed_refresh_failed') {
         showToast('Feed non aggiornato', event.payload?.error || 'Errore di rete');
       } else if (event.event === 'feed_refresh_completed') {
-        // During a manual global refresh, reloading items for every feed used
-        // to flood WebChannel with nested snapshots and race the progress
-        // signals. Refresh once at global completion instead.
         if (!state.refresh.running) await loadItems();
       }
     } catch { /* ignore */ }

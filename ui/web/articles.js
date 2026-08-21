@@ -89,14 +89,11 @@ async function refreshAll() {
     window.clearTimeout(state.refresh.hideTimer);
   }
 
-  // Arm the UI before calling Python. A very fast first feed may finish before
-  // the QWebChannel method callback returns; starting locally first prevents
-  // that first real progress event from being discarded.
   state.refresh = {
     running: true,
     current: 0,
     total: enabledFeeds.length,
-    backendSeenRunning: false,
+    manualSeenRunning: false,
     hideTimer: null,
   };
   els['refresh-fill'].dataset.total = '';
@@ -107,14 +104,13 @@ async function refreshAll() {
   const response = await bridgeCall('refreshAll');
   if (!response?.ok) {
     state.refresh.running = false;
+    state.refresh.manualSeenRunning = false;
     updateRefreshProgress();
     await loadSnapshot();
     showToast('Aggiornamento non avviato', response?.message || '');
     return;
   }
 
-  // Confirm the real backend state immediately; subsequent snapshots are
-  // polled while Python is busy, so the button cannot remain stuck.
   await loadSnapshot();
 }
 

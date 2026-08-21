@@ -8,6 +8,7 @@ import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 WEB_ROOT = PROJECT_ROOT / "ui" / "web"
+BRIDGE_PATH = PROJECT_ROOT / "ui" / "bridge.py"
 
 
 def test_web_assets_exist() -> None:
@@ -54,33 +55,41 @@ def test_qwebchannel_is_local_and_no_frontend_framework() -> None:
         assert framework not in html
 
 
-def test_refresh_ui_recovers_from_missed_finish_signal() -> None:
+def test_refresh_ui_uses_backend_snapshot_progress() -> None:
     state_js = (WEB_ROOT / "state.js").read_text(encoding="utf-8")
     articles_js = (WEB_ROOT / "articles.js").read_text(encoding="utf-8")
     app_js = (WEB_ROOT / "app.js").read_text(encoding="utf-8")
+    bridge_py = BRIDGE_PATH.read_text(encoding="utf-8")
 
-    assert "function scheduleRefreshStatePoll(active)" in state_js
+    assert '"manualAll": manual_refresh_running' in bridge_py
+    assert '"current": refresh_current' in bridge_py
+    assert '"total": refresh_total' in bridge_py
+    assert "self._refresh_current = max(" in bridge_py
+    assert "self._emit_state()" in bridge_py
+
+    assert "const backendManualRunning = Boolean(refreshState.manualAll);" in state_js
+    assert "Number(refreshState.current)" in state_js
+    assert "Number(refreshState.total)" in state_js
     assert "scheduleRefreshStatePoll(backendBusy);" in state_js
     assert "els['refresh-all-btn'].disabled = backendBusy;" in state_js
-    assert "&& !backendGlobalRunning" in state_js
-    assert "backendSeenRunning: false" in articles_js
+
+    assert "manualSeenRunning: false" in articles_js
+    assert "els['refresh-fill'].dataset.total = '';" in articles_js
+    assert "const response = await bridgeCall('refreshAll');" in articles_js
+
+    assert "state.backend.refreshProgress.connect" not in app_js
+    assert "Progress is intentionally NOT driven by refreshProgress" in app_js
     assert "window.setTimeout(() => loadSnapshot(), 180);" in app_js
 
 
-def test_segmented_refresh_progress_is_monotonic_and_stale_safe() -> None:
+def test_segmented_refresh_progress_is_visible() -> None:
     articles_js = (WEB_ROOT / "articles.js").read_text(encoding="utf-8")
-    app_js = (WEB_ROOT / "app.js").read_text(encoding="utf-8")
 
     assert "function ensureRefreshSegments(total)" in articles_js
     assert "rgba(255,102,0,.22)" in articles_js
     assert "inset 0 0 0 1px rgba(255,102,0,.20)" in articles_js
-    assert "els['refresh-fill'].dataset.total = '';" in articles_js
-    assert "const response = await bridgeCall('refreshAll');" in articles_js
-    assert "if (!state.refresh.running) return;" in app_js
-    assert "state.refresh.current = Math.max(" in app_js
-    assert "state.refresh.running = true;" not in app_js
-    assert "recordCompletedRefreshFeed" not in app_js
-    assert "if (!state.refresh.running) await loadItems();" in app_js
+    assert "const done = index < completed;" in articles_js
+    assert "state.refresh.current" in articles_js
 
 
 def test_bridge_normalizes_user_urls() -> None:
