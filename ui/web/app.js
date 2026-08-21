@@ -1,6 +1,8 @@
 'use strict';
 
 let lastReloadedRefreshOperationId = 0;
+let backendHeartbeatTimer = null;
+let backendHeartbeatBusy = false;
 
 async function openSelectedLink() {
   const item = state.items.find((candidate) => candidate.id === state.selectedItemId);
@@ -41,6 +43,65 @@ async function resyncVisibleView() {
     );
   }
   await loadItems({ syncSnapshot: false });
+}
+
+function articleStateFingerprint(snapshot) {
+  if (!snapshot) return '';
+  const feeds = (snapshot.feeds || [])
+    .map((feed) => `${feed.id}:${feed.itemCount}:${feed.unreadCount}`)
+    .join('|');
+  return `${snapshot.unreadCount || 0}|${feeds}`;
+}
+
+async function pollBackendState() {
+  if (!state.backend || backendHeartbeatBusy) return;
+  backendHeartbeatBusy = true;
+  try {
+    const previousSnapshot = state.snapshot;
+    const previousRefresh = previousSnapshot?.refreshing || {};
+    const previousOperationId = Number(previousRefresh.operationId) || 0;
+    const previousArticleState = articleStateFingerprint(previousSnapshot);
+
+    const response = await bridgeCall('getSnapshot');
+    if (!response?.ok) return;
+
+    const nextSnapshot = response.data;
+    const nextRefresh = nextSnapshot?.refreshing || {};
+    const nextOperationId = Number(nextRefresh.operationId) || 0;
+    const refreshCompleted = !nextRefresh.active && (
+      Boolean(previousRefresh.active)
+      || nextOperationId > previousOperationId
+    );
+    const articlesChanged = articleStateFingerprint(nextSnapshot) !== previousArticleState;
+
+    if (
+      nextOperationId !== previousOperationId
+      || Boolean(nextRefresh.active) !== Boolean(previousRefresh.active)
+      || Number(nextRefresh.current) !== Number(previousRefresh.current)
+      || articlesChanged
+    ) {
+      applySnapshot(response);
+    }
+
+    if (!nextRefresh.active && (refreshCompleted || articlesChanged)) {
+      lastReloadedRefreshOperationId = Math.max(
+        lastReloadedRefreshOperationId,
+        nextOperationId
+      );
+      await loadItems({ syncSnapshot: false });
+    }
+  } finally {
+    backendHeartbeatBusy = false;
+  }
+}
+
+function startBackendHeartbeat() {
+  if (backendHeartbeatTimer !== null) window.clearInterval(backendHeartbeatTimer);
+  backendHeartbeatTimer = window.setInterval(() => { void pollBackendState(); }, 1000);
+  window.addEventListener('focus', () => { void pollBackendState(); });
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) void pollBackendState();
+  });
 }
 
 function canNavigateArticlesWithArrows(target) {
@@ -124,7 +185,7 @@ function bindEvents() {
     if (!(event.ctrlKey || event.metaKey)) return;
     const key = event.key.toLowerCase();
     if (key === 'f') { event.preventDefault(); els['search-input'].focus(); }
-    else if (key === 'n') { event.preventDefault(); openAddFeedModal(); }
+    else if (key === 'n') { event.preventDefault(); openAddFeedModal); }
     else if (key === 'r' && event.shiftKey) { event.preventDefault(); refreshCurrentFeed(); }
     else if (key === 'r') { event.preventDefault(); refreshAll(); }
     else if (key === 'd') { event.preventDefault(); openRemoveFeedModal(); }
@@ -215,6 +276,11 @@ async function start() {
     bindBackendSignals();
     await loadSnapshot();
     await loadItems();
+    const refreshState = state.snapshot?.refreshing;
+    if (!refreshState?.active) {
+      lastReloadedRefreshOperationId = Number(refreshState?.operationId) || 0;
+    }
+    startBackendHeartbeat();
     els['app'].setAttribute('aria-busy', 'false');
   });
 }
