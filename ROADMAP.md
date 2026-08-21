@@ -36,18 +36,21 @@ Questa roadmap raccoglie i miglioramenti tecnici pianificati dopo il completamen
 
 **Criterio di completamento:** quando un server supporta validator HTTP, un feed invariato deve poter completare il refresh con `304 Not Modified` senza trasferire né riparsare il documento RSS/Atom.
 
-### A3. Refresh concorrente limitato — PROSSIMO
+### A3. Refresh concorrente limitato — COMPLETATO
 
-- [ ] Pool conservativo di 3–4 worker.
-- [ ] Nessun doppio refresh della stessa sorgente.
-- [ ] Progresso globale ancora espresso come feed completati / feed totali.
-- [ ] Errori isolati per sorgente.
-- [ ] Shutdown pulito dei worker.
-- [ ] Test su successo, errore e progresso fuori ordine.
+- [x] Pool conservativo di 4 worker massimi.
+- [x] Una sola task per sorgente nel batch globale.
+- [x] Progresso globale ancora espresso come feed completati / feed totali.
+- [x] Errori isolati per sorgente, inclusi errori inattesi.
+- [x] Shutdown pulito dei worker al termine del ciclo tramite context manager dell'executor.
+- [x] Persistenza JSON serializzata durante i completamenti concorrenti.
+- [x] Test su concorrenza, limite worker, successo, errore e progresso fuori ordine.
+
+**Criterio di completamento:** più feed devono potersi aggiornare in parallelo senza superare quattro richieste concorrenti; il progresso deve avanzare una volta per feed completato e il pool non deve lasciare worker attivi al termine.
 
 ## Fase B — Robustezza e qualità
 
-### B1. Stato operativo centralizzato nel controller — PIANIFICATO
+### B1. Stato operativo centralizzato nel controller — PROSSIMO
 
 - [ ] Un solo modello di stato per refresh globale e singolo feed.
 - [ ] `AppController` sorgente di verità per `active/current/total`.
@@ -117,7 +120,7 @@ Dipende da C1.
 
 1. A1 — cache URL feed risolto ✅
 2. A2 — ETag / Last-Modified ✅
-3. A3 — refresh concorrente limitato
+3. A3 — refresh concorrente limitato ✅
 4. B1 — stato refresh centralizzato
 5. B2 — deduplicazione robusta
 6. B3 — test end-to-end
