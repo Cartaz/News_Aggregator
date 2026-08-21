@@ -12,20 +12,20 @@ Questa roadmap raccoglie i miglioramenti tecnici pianificati dopo il completamen
 
 ## Fase A — Prestazioni di rete e refresh
 
-### A1. Cache dell'URL RSS/Atom risolto — IN CORSO
+### A1. Cache dell'URL RSS/Atom risolto — COMPLETATO
 
 **Obiettivo:** evitare di scaricare la homepage e rifare l'auto-discovery a ogni refresh.
 
-- [ ] Aggiungere alla sorgente un `resolved_feed_url` persistente.
-- [ ] Usare direttamente il feed risolto nei refresh successivi.
-- [ ] Se il feed cached fallisce, invalidare la cache e rifare l'auto-discovery dall'URL originale.
-- [ ] Aggiornare automaticamente la cache quando viene scoperto un nuovo URL valido.
-- [ ] Mantenere compatibilità con i file JSON esistenti.
-- [ ] Aggiungere test di persistenza, uso cache e fallback.
+- [x] Aggiungere alla sorgente un `resolved_feed_url` persistente.
+- [x] Usare direttamente il feed risolto nei refresh successivi.
+- [x] Se il feed cached fallisce, invalidare la cache e rifare l'auto-discovery dall'URL originale.
+- [x] Aggiornare automaticamente la cache quando viene scoperto un nuovo URL valido.
+- [x] Mantenere compatibilità con i file JSON esistenti.
+- [x] Aggiungere test di persistenza, uso cache e fallback.
 
 **Criterio di completamento:** dopo il primo refresh di una homepage, i refresh successivi non devono richiedere nuovamente la homepage finché il feed risolto resta valido.
 
-### A2. HTTP condizionale (`ETag` / `Last-Modified`) — PIANIFICATO
+### A2. HTTP condizionale (`ETag` / `Last-Modified`) — PROSSIMO
 
 - [ ] Persistenza dei validator HTTP per sorgente/feed risolto.
 - [ ] Invio di `If-None-Match` / `If-Modified-Since`.
@@ -112,7 +112,7 @@ Dipende da C1.
 
 ## Ordine di esecuzione previsto
 
-1. A1 — cache URL feed risolto
+1. A1 — cache URL feed risolto ✅
 2. A2 — ETag / Last-Modified
 3. A3 — refresh concorrente limitato
 4. B1 — stato refresh centralizzato
