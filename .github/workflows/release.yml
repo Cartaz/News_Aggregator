@@ -22,7 +22,8 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          tag="${RELEASE_MESSAGE#\[release\] }"
+          first_line="${RELEASE_MESSAGE%%$'\n'*}"
+          tag="${first_line#\[release\] }"
           if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Invalid release tag: $tag" >&2
             exit 1
