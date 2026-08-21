@@ -9,7 +9,7 @@ const state = {
   selectedItemId: null,
   search: '',
   showUnreadOnly: false,
-  refresh: { running: false, current: 0, total: 0 },
+  refresh: { running: false, current: 0, total: 0, backendSeenRunning: false },
   modalReturnFocus: null,
 };
 
@@ -89,8 +89,25 @@ function applySnapshot(snapshot) {
   state.showUnreadOnly = Boolean(snapshot.data.settings.show_unread_only);
   els['unread-toggle'].checked = state.showUnreadOnly;
   els['app-name'].textContent = snapshot.data.app.name;
+
   const refreshState = snapshot.data.refreshing || { all: false, feeds: [] };
-  els['refresh-all-btn'].disabled = state.refresh.running || Boolean(refreshState.all) || (refreshState.feeds || []).length > 0;
+  const backendGlobalRunning = Boolean(refreshState.all);
+  if (backendGlobalRunning && state.refresh.running) {
+    state.refresh.backendSeenRunning = true;
+  } else if (
+    state.refresh.running
+    && state.refresh.backendSeenRunning
+    && !backendGlobalRunning
+  ) {
+    // The backend is authoritative. If the completion WebChannel signal is
+    // delayed or missed, a settled snapshot must still release the UI.
+    state.refresh.running = false;
+    state.refresh.current = state.refresh.total;
+    state.refresh.backendSeenRunning = false;
+    updateRefreshProgress();
+  }
+
+  els['refresh-all-btn'].disabled = state.refresh.running || backendGlobalRunning || (refreshState.feeds || []).length > 0;
   document.documentElement.style.setProperty('--font-scale', String(snapshot.data.settings.font_scale_factor || 1));
   document.documentElement.style.setProperty('--sidebar-width', `${Math.max(240, Math.min(480, snapshot.data.settings.source_split_width || 280))}px`);
   renderSources();
