@@ -9,6 +9,7 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 WEB_ROOT = PROJECT_ROOT / "ui" / "web"
 BRIDGE_PATH = PROJECT_ROOT / "ui" / "bridge.py"
+CONTROLLER_PATH = PROJECT_ROOT / "core" / "app_controller.py"
 
 
 def test_web_assets_exist() -> None:
@@ -55,31 +56,34 @@ def test_qwebchannel_is_local_and_no_frontend_framework() -> None:
         assert framework not in html
 
 
-def test_refresh_ui_uses_backend_snapshot_progress() -> None:
+def test_refresh_ui_uses_controller_snapshot_as_single_source() -> None:
     state_js = (WEB_ROOT / "state.js").read_text(encoding="utf-8")
     articles_js = (WEB_ROOT / "articles.js").read_text(encoding="utf-8")
     app_js = (WEB_ROOT / "app.js").read_text(encoding="utf-8")
     bridge_py = BRIDGE_PATH.read_text(encoding="utf-8")
+    controller_py = CONTROLLER_PATH.read_text(encoding="utf-8")
 
-    assert '"manualAll": manual_refresh_running' in bridge_py
-    assert '"current": refresh_current' in bridge_py
-    assert '"total": refresh_total' in bridge_py
-    assert "self._refresh_current = max(" in bridge_py
-    assert "self._emit_state()" in bridge_py
+    assert '"refreshing": self._controller.get_refresh_state()' in bridge_py
+    assert "self._refreshing_all" not in bridge_py
+    assert "self._refresh_current" not in bridge_py
+    assert "self._refresh_total" not in bridge_py
+    assert "self._refreshing_feeds" not in bridge_py
 
-    assert "const backendManualRunning = Boolean(refreshState.manualAll);" in state_js
-    assert "Number(refreshState.current)" in state_js
-    assert "Number(refreshState.total)" in state_js
+    assert "self._refresh_state = RefreshState()" in controller_py
+    assert "def get_refresh_state(" in controller_py
+    assert 'self._bus.emit("refresh_state_changed"' in controller_py
+
+    assert "const backendBusy = Boolean(refreshState.active);" in state_js
+    assert "updateRefreshProgress(refreshState);" in state_js
     assert "scheduleRefreshStatePoll(backendBusy);" in state_js
-    assert "els['refresh-all-btn'].disabled = backendBusy;" in state_js
+    assert "state.refresh" not in state_js
 
-    assert "manualSeenRunning: false" in articles_js
-    assert "els['refresh-fill'].dataset.total = '';" in articles_js
-    assert "const response = await bridgeCall('refreshAll');" in articles_js
+    assert "function updateRefreshProgress(refreshState = state.snapshot?.refreshing)" in articles_js
+    assert "Number(refreshState.current)" in articles_js
+    assert "Number(refreshState.total)" in articles_js
+    assert "state.refresh" not in articles_js
 
     assert "state.backend.refreshProgress.connect" not in app_js
-    assert "Progress is intentionally NOT driven by refreshProgress" in app_js
-    assert "window.setTimeout(() => loadSnapshot(), 180);" in app_js
 
 
 def test_segmented_refresh_progress_is_visible() -> None:
@@ -89,7 +93,7 @@ def test_segmented_refresh_progress_is_visible() -> None:
     assert "rgba(255,102,0,.22)" in articles_js
     assert "inset 0 0 0 1px rgba(255,102,0,.20)" in articles_js
     assert "const done = index < completed;" in articles_js
-    assert "state.refresh.current" in articles_js
+    assert "refreshState.current" in articles_js
 
 
 def test_arrow_keys_navigate_filtered_articles_safely() -> None:

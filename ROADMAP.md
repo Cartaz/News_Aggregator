@@ -50,14 +50,18 @@ Questa roadmap raccoglie i miglioramenti tecnici pianificati dopo il completamen
 
 ## Fase B — Robustezza e qualità
 
-### B1. Stato operativo centralizzato nel controller — PROSSIMO
+### B1. Stato operativo centralizzato nel controller — COMPLETATO
 
-- [ ] Un solo modello di stato per refresh globale e singolo feed.
-- [ ] `AppController` sorgente di verità per `active/current/total`.
-- [ ] `WebBridge` ridotto a adapter/serializzatore.
-- [ ] Eliminare duplicazioni di stato tra controller, bridge e JavaScript.
+- [x] Un solo modello `RefreshState` per refresh globale e singolo feed.
+- [x] `AppController` sorgente di verità per `active/current/total` e feed attivi.
+- [x] `WebBridge` ridotto ad adapter/serializzatore dello snapshot controller.
+- [x] Rimossi i duplicati operativi di stato dal JavaScript.
+- [x] Guard dei refresh sovrapposti spostato nel controller.
+- [x] Test del lifecycle asincrono globale e singolo.
 
-### B2. Identità e deduplicazione articoli — PIANIFICATO
+**Criterio di completamento:** nessun livello UI deve decidere autonomamente se un refresh è attivo o quale sia il suo progresso; tali dati provengono esclusivamente dallo snapshot del controller.
+
+### B2. Identità e deduplicazione articoli — PROSSIMO
 
 Strategia prevista:
 
@@ -121,7 +125,7 @@ Dipende da C1.
 1. A1 — cache URL feed risolto ✅
 2. A2 — ETag / Last-Modified ✅
 3. A3 — refresh concorrente limitato ✅
-4. B1 — stato refresh centralizzato
+4. B1 — stato refresh centralizzato ✅
 5. B2 — deduplicazione robusta
 6. B3 — test end-to-end
 7. B4 — CI
