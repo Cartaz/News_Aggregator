@@ -2,7 +2,7 @@
 pkgname=news-aggregator
 pkgver=1.0.0
 pkgrel=1
-pkgdesc="Aggregatore di feed RSS/Atom in formato solo testo, integrato KDE Plasma / Breeze Dark"
+pkgdesc="Aggregatore desktop di feed RSS/Atom con interfaccia HTML Dark Neumorphism"
 arch=('any')
 url="https://news-aggregator.local"
 license=('GPL-3.0-or-later')
