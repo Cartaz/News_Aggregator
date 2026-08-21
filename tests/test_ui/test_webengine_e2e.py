@@ -151,15 +151,11 @@ def test_background_refresh_reloads_current_scope_without_reclick(qtbot, backend
     assert js(qtbot, view, "document.querySelector('.article-title').textContent") == "Background News"
     assert js(qtbot, view, "document.getElementById('content-title').textContent") == "Tech"
 
-    badge_style = js(
-        qtbot,
-        view,
-        "(() => { const s=getComputedStyle(document.querySelector('#category-list .count-badge')); return [s.color,s.backgroundColor,s.boxShadow,parseFloat(s.fontSize)]; })()",
-    )
-    assert badge_style[0] == "rgb(255, 102, 0)"
-    assert badge_style[1] == "rgba(0, 0, 0, 0)"
-    assert badge_style[2] == "none"
-    assert badge_style[3] >= 16
+    badge = "document.querySelector('#category-list .count-badge')"
+    assert js(qtbot, view, f"getComputedStyle({badge}).color") == "rgb(255, 102, 0)"
+    assert js(qtbot, view, f"getComputedStyle({badge}).backgroundColor") == "rgba(0, 0, 0, 0)"
+    assert js(qtbot, view, f"getComputedStyle({badge}).boxShadow") == "none"
+    assert js(qtbot, view, f"parseFloat(getComputedStyle({badge}).fontSize)") >= 16
 
 
 def test_unread_filter_and_arrow_navigation(qtbot, backend) -> None:  # type: ignore[no-untyped-def]
