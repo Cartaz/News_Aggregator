@@ -32,16 +32,37 @@ function renderArticles() {
 }
 
 async function selectArticle(itemId) {
-  state.selectedItemId = itemId;
+  const previousItemId = state.selectedItemId;
+  if (previousItemId === itemId) return;
+
+  const previousItem = state.items.find(
+    (candidate) => candidate.id === previousItemId
+  );
   const item = state.items.find((candidate) => candidate.id === itemId);
   if (!item) return;
+
+  // Keep the article currently being read unread. The previous article is
+  // marked read only when the user moves to another item. This prevents the
+  // active article from disappearing immediately with the unread-only filter.
+  state.selectedItemId = itemId;
   renderArticles();
-  if (!item.read && state.snapshot?.settings?.mark_read_on_select) {
-    const response = await bridgeCall('markRead', item.sourceId, item.id);
+
+  if (
+    previousItem
+    && !previousItem.read
+    && state.snapshot?.settings?.mark_read_on_select
+  ) {
+    const response = await bridgeCall(
+      'markRead',
+      previousItem.sourceId,
+      previousItem.id
+    );
     if (response?.ok) {
-      item.read = true;
+      previousItem.read = true;
       await loadSnapshot();
       applyFilters();
+    } else {
+      showToast('Stato non aggiornato', response?.message || '');
     }
   }
 }
