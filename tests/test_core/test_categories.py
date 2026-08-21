@@ -13,13 +13,11 @@ from core.feed_manager import FeedManager
 
 @pytest.fixture
 def manager(tmp_paths: Path, reset_event_bus: None) -> FeedManager:
-    """Restituisce un FeedManager con storage temporaneo."""
     FeedManager._instance = None  # type: ignore[attr-defined]
     return FeedManager()
 
 
 def test_rename_feed(manager: FeedManager) -> None:
-    """rename_feed deve aggiornare il titolo della sorgente."""
     source = manager.add("https://example.com/feed.xml", title="Originale")
     renamed = manager.rename_feed(source.id, "Nuovo Nome")
     assert renamed.title == "Nuovo Nome"
@@ -27,20 +25,17 @@ def test_rename_feed(manager: FeedManager) -> None:
 
 
 def test_rename_feed_empty_raises(manager: FeedManager) -> None:
-    """rename_feed con titolo vuoto deve sollevare FeedError."""
     source = manager.add("https://example.com/feed.xml")
     with pytest.raises(FeedError):
         manager.rename_feed(source.id, "   ")
 
 
 def test_rename_feed_unknown_raises(manager: FeedManager) -> None:
-    """rename_feed su ID inesistente deve sollevare FeedNotFoundError."""
     with pytest.raises(FeedNotFoundError):
         manager.rename_feed("nonexistent", "Nome")
 
 
 def test_set_category(manager: FeedManager) -> None:
-    """set_category deve assegnare una categoria al feed."""
     source = manager.add("https://example.com/feed.xml")
     updated = manager.set_category(source.id, "Tech")
     assert updated.category == "Tech"
@@ -48,7 +43,6 @@ def test_set_category(manager: FeedManager) -> None:
 
 
 def test_set_category_empty_removes(manager: FeedManager) -> None:
-    """set_category con stringa vuota deve rimuovere la categoria."""
     source = manager.add("https://example.com/feed.xml")
     manager.set_category(source.id, "Tech")
     manager.set_category(source.id, "")
@@ -56,7 +50,6 @@ def test_set_category_empty_removes(manager: FeedManager) -> None:
 
 
 def test_get_categories(manager: FeedManager) -> None:
-    """get_categories deve restituire le categorie in uso, ordinate."""
     s1 = manager.add("https://a.com/feed")
     s2 = manager.add("https://b.com/feed")
     s3 = manager.add("https://c.com/feed")
@@ -68,7 +61,6 @@ def test_get_categories(manager: FeedManager) -> None:
 
 
 def test_get_feeds_by_category(manager: FeedManager) -> None:
-    """get_feeds_by_category deve restituire solo i feed della categoria."""
     s1 = manager.add("https://a.com/feed")
     s2 = manager.add("https://b.com/feed")
     manager.set_category(s1.id, "Tech")
@@ -79,7 +71,6 @@ def test_get_feeds_by_category(manager: FeedManager) -> None:
 
 
 def test_get_items_by_category(manager: FeedManager, sample_rss_bytes: bytes) -> None:
-    """get_items_by_category deve aggregare gli articoli di più feed."""
     from core.feed_parser import parse_feed_bytes
 
     s1 = manager.add("https://a.com/feed")
@@ -91,22 +82,22 @@ def test_get_items_by_category(manager: FeedManager, sample_rss_bytes: bytes) ->
     _, items_b = parse_feed_bytes(sample_rss_bytes, s2.id, s2.url)
 
     with patch(
-        "core.feed_manager.fetch_and_parse",
-        side_effect=[("Feed A", items_a), ("Feed B", items_b)],
+        "core.feed_manager.fetch_and_parse_resolved",
+        side_effect=[
+            ("Feed A", items_a, s1.url),
+            ("Feed B", items_b, s2.url),
+        ],
     ):
         manager.refresh(s1.id)
         manager.refresh(s2.id)
 
     tech_items = manager.get_items_by_category("Tech")
-    # 2 articoli per feed × 2 feed = 4 totali
     assert len(tech_items) == 4
-    # Devono essere ordinati per data decrescente
     for i in range(len(tech_items) - 1):
         assert tech_items[i].published >= tech_items[i + 1].published
 
 
 def test_get_all_items_mega_feed(manager: FeedManager, sample_rss_bytes: bytes) -> None:
-    """get_all_items deve aggregare tutti gli articoli di tutte le sorgenti."""
     from core.feed_parser import parse_feed_bytes
 
     s1 = manager.add("https://a.com/feed")
@@ -116,21 +107,22 @@ def test_get_all_items_mega_feed(manager: FeedManager, sample_rss_bytes: bytes) 
     _, items_b = parse_feed_bytes(sample_rss_bytes, s2.id, s2.url)
 
     with patch(
-        "core.feed_manager.fetch_and_parse",
-        side_effect=[("Feed A", items_a), ("Feed B", items_b)],
+        "core.feed_manager.fetch_and_parse_resolved",
+        side_effect=[
+            ("Feed A", items_a, s1.url),
+            ("Feed B", items_b, s2.url),
+        ],
     ):
         manager.refresh(s1.id)
         manager.refresh(s2.id)
 
     all_items = manager.get_all_items()
     assert len(all_items) == 4
-    # Ordinati per data decrescente
     for i in range(len(all_items) - 1):
         assert all_items[i].published >= all_items[i + 1].published
 
 
 def test_category_persistence(tmp_paths: Path, reset_event_bus: None) -> None:
-    """La categoria e il rename devono sopravvivere a un reload."""
     FeedManager._instance = None  # type: ignore[attr-defined]
     m1 = FeedManager()
     source = m1.add("https://example.com/feed", title="Originale")
