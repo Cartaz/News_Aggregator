@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import QTimer, QUrl
+from PySide6.QtCore import QEvent, QTimer, QUrl
 from PySide6.QtGui import QColor, QCloseEvent, QDesktopServices, QIcon, QShowEvent
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import QWebEnginePage
@@ -47,6 +47,14 @@ class WebMainWindow(QMainWindow):
         self.bridge.requestQuit.connect(self.force_quit)
         self.bridge.requestHide.connect(self.hide_to_tray)
 
+        # A native show/activation can happen without a reliable WebEngine
+        # visibility transition (notably on KDE). Debounce all those paths into
+        # one explicit UI resync once the window is active again.
+        self._ui_sync_timer = QTimer(self)
+        self._ui_sync_timer.setSingleShot(True)
+        self._ui_sync_timer.setInterval(80)
+        self._ui_sync_timer.timeout.connect(self.bridge.request_ui_sync)
+
         self._view = QWebEngineView(self)
         self._page = _AppPage(self._view)
         self._page.setBackgroundColor(QColor(20, 20, 20))
@@ -68,11 +76,25 @@ class WebMainWindow(QMainWindow):
         except Exception:
             logger.warning("Impossibile salvare la geometria finestra", exc_info=True)
 
+    def _schedule_ui_sync(self) -> None:
+        self._ui_sync_timer.start()
+
+    def event(self, event: QEvent) -> bool:
+        handled = super().event(event)
+        if event.type() == QEvent.Type.WindowActivate and hasattr(self, "_ui_sync_timer"):
+            self._schedule_ui_sync()
+        return handled
+
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)
-        # WebEngine may throttle/miss WebChannel signals while the native window
-        # is hidden in the tray. Once visible, force a fresh snapshot + item load.
-        QTimer.singleShot(0, self.bridge.request_ui_sync)
+        self._schedule_ui_sync()
+
+    def restore_from_tray(self) -> None:
+        """Restore the window and explicitly resync its current web view."""
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+        self._schedule_ui_sync()
 
     def hide_to_tray(self) -> None:
         self._persist_geometry()
