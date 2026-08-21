@@ -75,7 +75,6 @@ class WebMainWindow(QMainWindow):
     def force_quit(self) -> None:
         self._force_close = True
         self._persist_geometry()
-        self._controller.shutdown()
         QApplication.quit()
 
     def closeEvent(self, event: QCloseEvent) -> None:
@@ -84,7 +83,6 @@ class WebMainWindow(QMainWindow):
             event.ignore()
             self.hide()
             return
-        self._controller.shutdown()
         event.accept()
         QApplication.quit()
 
