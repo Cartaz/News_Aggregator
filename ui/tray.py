@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QAction, QColor, QFont, QIcon, QPainter, QPixmap
+from PySide6.QtCore import QRect, Qt, Signal
+from PySide6.QtGui import QAction, QColor, QFont, QFontMetrics, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 
 from config.constants import AppMeta, Paths
@@ -48,28 +48,41 @@ class TrayIcon(QSystemTrayIcon):
             return
 
         self.setToolTip(f"{AppMeta.DISPLAY_NAME} — {self._unread_count} non letti")
-        pixmap = self._base_icon.pixmap(64, 64)
-        if pixmap.isNull():
-            pixmap = QPixmap(64, 64)
-            pixmap.fill(QColor("#141414"))
+        canvas = QPixmap(64, 64)
+        canvas.fill(Qt.GlobalColor.transparent)
+
+        painter = QPainter(canvas)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+
+        # Reserve the right side exclusively for the count so the digits never
+        # overlap the application glyph after the desktop scales the tray icon.
+        base_pixmap = self._base_icon.pixmap(40, 40)
+        if not base_pixmap.isNull():
+            painter.drawPixmap(0, 12, base_pixmap)
 
         text = "99+" if self._unread_count > 99 else str(self._unread_count)
         font = QFont("Sans Serif")
         font.setWeight(QFont.Weight.Black)
-        if len(text) == 1:
-            font.setPixelSize(28)
-        elif len(text) == 2:
-            font.setPixelSize(22)
-        else:
-            font.setPixelSize(16)
+        font.setPixelSize(36)
+        text_rect = QRect(31, 4, 33, 56)
 
-        painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(QColor("#FF6600"))
+        # Keep the largest possible digits inside the dedicated right-hand area.
+        metrics = QFontMetrics(font)
+        while metrics.horizontalAdvance(text) > text_rect.width() - 2 and font.pixelSize() > 17:
+            font.setPixelSize(font.pixelSize() - 2)
+            metrics = QFontMetrics(font)
         painter.setFont(font)
-        painter.drawText(31, 31, 33, 33, Qt.AlignmentFlag.AlignCenter, text)
+
+        # A dark outline belongs to the glyph itself, not to a badge/circle. It
+        # keeps orange digits readable on both light and dark system panels.
+        painter.setPen(QColor("#141414"))
+        for dx, dy in ((-2, 0), (2, 0), (0, -2), (0, 2), (-1, -1), (1, -1), (-1, 1), (1, 1)):
+            painter.drawText(text_rect.translated(dx, dy), Qt.AlignmentFlag.AlignCenter, text)
+        painter.setPen(QColor("#FF6600"))
+        painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, text)
         painter.end()
-        self.setIcon(QIcon(pixmap))
+        self.setIcon(QIcon(canvas))
 
     def notify_new_items(self, count: int, source_title: str) -> None:
         if count <= 0:
