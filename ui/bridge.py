@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlparse
 
-from PySide6.QtCore import QObject, Qt, Signal, Slot, QUrl
+from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot, QUrl
 from PySide6.QtGui import QDesktopServices
 
 from config.constants import AppMeta, FeedDefaults, Paths
@@ -59,7 +59,7 @@ class WebBridge(QObject):
         self._refreshing_all = False
         self._refreshing_feeds: set[str] = set()
         self._eventRelay.connect(self._deliver_event, Qt.ConnectionType.QueuedConnection)
-        self._progressRelay.connect(self.refreshProgress.emit, Qt.ConnectionType.QueuedConnection)
+        self._progressRelay.connect(self._deliver_progress, Qt.ConnectionType.QueuedConnection)
         self._finishRelay.connect(self._deliver_finish, Qt.ConnectionType.QueuedConnection)
         for event_name in self._EVENTS:
             self._bus.subscribe(event_name, self._make_event_handler(event_name))
@@ -87,10 +87,15 @@ class WebBridge(QObject):
                     pass
                 if count:
                     self.newItemsDetected.emit(count, title)
-            if event_name not in {"feed_refresh_started"}:
-                self._emit_state()
+            self._emit_state()
+            if event_name in {"feed_refresh_completed", "feed_refresh_failed"}:
+                QTimer.singleShot(100, self._emit_state)
         except Exception:
             logger.debug("Impossibile elaborare evento WebChannel", exc_info=True)
+
+    @Slot(str)
+    def _deliver_progress(self, raw: str) -> None:
+        self.refreshProgress.emit(raw)
 
     @Slot(str)
     def _deliver_finish(self, raw: str) -> None:
@@ -149,6 +154,10 @@ class WebBridge(QObject):
         try:
             feeds = self._controller.get_all_feeds()
             settings = asdict(self._controller.settings)
+            core_thread = getattr(self._controller, "_refresh_thread", None)
+            global_refresh_running = self._refreshing_all or bool(
+                core_thread and core_thread.is_alive()
+            )
             data = {
                 "app": {
                     "name": AppMeta.DISPLAY_NAME,
@@ -160,7 +169,7 @@ class WebBridge(QObject):
                 "unreadCount": self._controller.get_total_unread_count(),
                 "settings": settings,
                 "refreshing": {
-                    "all": self._refreshing_all,
+                    "all": global_refresh_running,
                     "feeds": sorted(self._refreshing_feeds),
                 },
             }
@@ -236,7 +245,12 @@ class WebBridge(QObject):
     @Slot(str, result=str)
     def refreshFeed(self, source_id: str) -> str:
         with self._refresh_lock:
-            if self._refreshing_all or source_id in self._refreshing_feeds:
+            core_thread = getattr(self._controller, "_refresh_thread", None)
+            if (
+                self._refreshing_all
+                or source_id in self._refreshing_feeds
+                or (core_thread and core_thread.is_alive())
+            ):
                 return self._error("Aggiornamento già in corso")
             self._refreshing_feeds.add(source_id)
 
