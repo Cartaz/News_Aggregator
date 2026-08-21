@@ -119,7 +119,13 @@ function bindBackendSignals() {
   state.backend.backendEvent.connect(async (raw) => {
     try {
       const event = JSON.parse(raw);
-      if (event.event === 'feed_refresh_failed') showToast('Feed non aggiornato', event.payload?.error || 'Errore di rete');
+      if (event.event === 'feed_refresh_failed') {
+        showToast('Feed non aggiornato', event.payload?.error || 'Errore di rete');
+      } else if (event.event === 'feed_refresh_completed') {
+        // Aggiorna lista e contatori feed/categoria ad ogni sorgente
+        // completata, non solo al termine dell'intero refresh globale.
+        await loadItems();
+      }
     } catch { /* ignore */ }
   });
 }
