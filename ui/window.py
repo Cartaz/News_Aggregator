@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 
 from PySide6.QtCore import QUrl
-from PySide6.QtGui import QCloseEvent, QDesktopServices, QIcon
+from PySide6.QtGui import QColor, QCloseEvent, QDesktopServices, QIcon
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import QWebEnginePage
 from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -39,6 +39,7 @@ class WebMainWindow(QMainWindow):
         self.setWindowTitle(AppMeta.DISPLAY_NAME)
         self.setMinimumSize(UIConstraints.WINDOW_MIN_WIDTH, UIConstraints.WINDOW_MIN_HEIGHT)
         self.resize(controller.settings.window_width, controller.settings.window_height)
+        self.setStyleSheet("QMainWindow { background: rgb(20, 20, 20); }")
         if Paths.APP_ICON.exists():
             self.setWindowIcon(QIcon(str(Paths.APP_ICON)))
 
@@ -48,6 +49,7 @@ class WebMainWindow(QMainWindow):
 
         self._view = QWebEngineView(self)
         self._page = _AppPage(self._view)
+        self._page.setBackgroundColor(QColor(20, 20, 20))
         self._view.setPage(self._page)
         self._channel = QWebChannel(self._page)
         self._channel.registerObject("backend", self.bridge)
