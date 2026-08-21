@@ -12,7 +12,6 @@ logger = logging.getLogger(__name__)
 
 
 def serialize_source(source: FeedSource) -> dict[str, Any]:
-    """Serializza una ``FeedSource`` in dict JSON-compatibile."""
     return {
         "url": source.url,
         "title": source.title,
@@ -38,13 +37,13 @@ def _serialize_item(item: FeedItem) -> dict[str, Any]:
         "summary": item.summary,
         "published": item.published.isoformat(),
         "author": item.author,
+        "guid": item.guid,
         "read": item.read,
     }
 
 
 def deserialize_source(data: dict[str, Any]) -> FeedSource:
-    """Deserializza una sorgente mantenendo compatibilità con vecchi JSON."""
-    source: FeedSource = FeedSource(
+    source = FeedSource(
         url=data["url"],
         title=data.get("title", data["url"]),
         enabled=data.get("enabled", True),
@@ -69,15 +68,16 @@ def deserialize_source(data: dict[str, Any]) -> FeedSource:
 
 
 def _deserialize_item(data: dict[str, Any]) -> FeedItem:
-    published: datetime = datetime.fromisoformat(data["published"])
+    published = datetime.fromisoformat(data["published"])
     return FeedItem(
         id=data["id"],
         source_id=data["source_id"],
         title=data["title"],
-        link=data["link"],
-        summary=data["summary"],
+        link=data.get("link", ""),
+        summary=data.get("summary", ""),
         published=published,
         author=data.get("author", ""),
+        guid=data.get("guid", ""),
         read=data.get("read", False),
     )
 

@@ -1,30 +1,26 @@
-"""Modelli dati dell'applicazione.
-
-Definiti come dataclass immutabili o quasi. Il livello core li usa come
-tipi di scambio; il livello UI li legge senza mai mutarli direttamente.
-"""
+"""Modelli dati dell'applicazione."""
 
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Iterable
 
+from core.item_identity import canonicalize_url, fallback_identity_key, make_item_id
+
 
 def _utcnow() -> datetime:
-    """Restituisce il timestamp UTC corrente (timezone-aware)."""
     return datetime.now(timezone.utc)
 
 
 def _make_feed_id(url: str) -> str:
-    """Genera un ID stabile per un feed a partire dall'URL."""
     return hashlib.sha1(url.encode("utf-8")).hexdigest()[:12]
 
 
 @dataclass(frozen=True)
 class FeedItem:
-    """Singolo articolo di un feed."""
+    """Singolo articolo con identità stabile GUID/URL/fallback."""
 
     id: str
     source_id: str
@@ -34,6 +30,7 @@ class FeedItem:
     published: datetime
     author: str = ""
     read: bool = False
+    guid: str = ""
 
     @classmethod
     def from_raw(
@@ -44,29 +41,32 @@ class FeedItem:
         summary: str,
         published: datetime,
         author: str = "",
+        guid: str = "",
     ) -> FeedItem:
-        """Costruisce un FeedItem calcolando automaticamente l'ID."""
-        item_id = hashlib.sha1(link.encode("utf-8")).hexdigest()[:16]
+        """Costruisce un item usando GUID, URL canonico o fallback stabile."""
+        canonical_link = canonicalize_url(link)
+        item_id = make_item_id(
+            source_id=source_id,
+            title=title,
+            link=canonical_link,
+            published=published,
+            guid=guid,
+        )
         return cls(
             id=item_id,
             source_id=source_id,
             title=title,
-            link=link,
+            link=canonical_link,
             summary=summary,
             published=published,
             author=author,
+            guid=(guid or "").strip(),
         )
 
 
 @dataclass
 class FeedSource:
-    """Sorgente feed RSS/Atom aggiunta dall'utente.
-
-    ``url`` resta l'identità stabile della sorgente. ``resolved_feed_url`` è
-    la cache del feed RSS/Atom effettivo. ``http_etag`` e
-    ``http_last_modified`` appartengono sempre all'URL effettivo corrente e
-    vengono invalidati quando tale URL cambia.
-    """
+    """Sorgente feed RSS/Atom aggiunta dall'utente."""
 
     url: str
     title: str = ""
@@ -81,64 +81,75 @@ class FeedSource:
 
     @property
     def id(self) -> str:
-        """ID stabile derivato dall'URL originale, non dalla cache risolta."""
         return _make_feed_id(self.url)
 
     @property
     def unread_count(self) -> int:
-        """Numero di articoli non letti."""
         return sum(1 for item in self.items if not item.read)
 
     def replace_items(self, new_items: Iterable[FeedItem]) -> list[FeedItem]:
-        """Sostituisce gli articoli preservando lo stato ``read``."""
-        previous_ids: dict[str, FeedItem] = {it.id: it for it in self.items}
+        """Sostituisce gli articoli preservando lettura e migrazione ID.
+
+        La riconciliazione usa, nell'ordine: nuovo ID, GUID, URL canonico e
+        fallback titolo/data solo per item privi sia di GUID sia di URL.
+        Questo permette ai vecchi JSON (ID=SHA1 del link grezzo) di migrare
+        senza ripresentare gli articoli come nuovi.
+        """
+        previous_by_id = {item.id: item for item in self.items}
+        previous_by_guid = {
+            item.guid: item for item in self.items if item.guid
+        }
+        previous_by_link = {
+            canonicalize_url(item.link): item
+            for item in self.items
+            if canonicalize_url(item.link)
+        }
+        previous_by_fallback = {
+            fallback_identity_key(item.title, item.published): item
+            for item in self.items
+            if not item.guid and not canonicalize_url(item.link)
+        }
+
         new_list: list[FeedItem] = []
         brand_new: list[FeedItem] = []
+        seen_ids: set[str] = set()
         for item in new_items:
-            if item.id in previous_ids:
-                old = previous_ids[item.id]
-                new_list.append(
-                    FeedItem(
-                        id=item.id,
-                        source_id=item.source_id,
-                        title=item.title,
-                        link=item.link,
-                        summary=item.summary,
-                        published=item.published,
-                        author=item.author,
-                        read=old.read,
-                    )
+            if item.id in seen_ids:
+                continue
+            seen_ids.add(item.id)
+
+            old = previous_by_id.get(item.id)
+            if old is None and item.guid:
+                old = previous_by_guid.get(item.guid)
+            canonical_link = canonicalize_url(item.link)
+            if old is None and canonical_link:
+                old = previous_by_link.get(canonical_link)
+            if old is None and not item.guid and not canonical_link:
+                old = previous_by_fallback.get(
+                    fallback_identity_key(item.title, item.published)
                 )
+
+            if old is not None:
+                new_list.append(replace(item, read=old.read))
             else:
                 new_list.append(item)
                 brand_new.append(item)
+
         self.items = new_list
         self.last_updated = _utcnow()
         self.last_error = ""
         return brand_new
 
     def mark_read(self, item_id: str) -> bool:
-        """Marca un articolo come letto per ID."""
         for idx, item in enumerate(self.items):
             if item.id == item_id:
-                self.items[idx] = FeedItem(
-                    id=item.id,
-                    source_id=item.source_id,
-                    title=item.title,
-                    link=item.link,
-                    summary=item.summary,
-                    published=item.published,
-                    author=item.author,
-                    read=True,
-                )
+                self.items[idx] = replace(item, read=True)
                 return True
         return False
 
 
 @dataclass(frozen=True)
 class FeedCategory:
-    """Cartella che raggruppa più sorgenti feed."""
-
     name: str
 
     @property
