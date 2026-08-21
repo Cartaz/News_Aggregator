@@ -1,48 +1,26 @@
-"""Deterministic custom-painted controls for Dark Neumorphism v8.
+"""Native Qt controls with a Dark Neumorphism presentation layer.
 
-No QGraphicsEffect is used.  The target screenshots proved that graphics
-effects were not producing visible raised material on the user's compositor.
-
-Native Qt widget semantics remain unchanged; only pixels are custom-painted.
+Signals, focus semantics, keyboard behaviour and size hints remain those of the
+underlying Qt widgets. Only paint operations are customized.
 """
 
 from __future__ import annotations
 
 from PySide6.QtCore import QEvent, QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPalette
-from PySide6.QtWidgets import (
-    QLabel,
-    QLineEdit,
-    QPushButton,
-    QStyle,
-    QStyleOptionButton,
-    QWidget,
-)
+from PySide6.QtWidgets import QLabel, QLineEdit, QPushButton, QStyle, QStyleOptionButton, QWidget
 
-from config.theme import (
-    ThemeColors,
-    ThemeDepth,
-    ThemeFonts,
-    ThemeSpacing,
-    ThemeTypography,
-)
-from ui.styles.neumorphic_painter import (
-    draw_inset_surface,
-    draw_raised_surface,
-    rounded_path,
-)
+from config.theme import ThemeColors, ThemeDepth, ThemeFonts, ThemeSpacing, ThemeTypography
+from ui.styles.neumorphic_painter import draw_inset_surface, draw_raised_surface, rounded_path
 
 
 class NeumorphicButton(QPushButton):
-    """Native QPushButton with a guaranteed visible raised/recessed skin."""
+    """A native QPushButton with raised, hover and pressed depth states."""
 
     def __init__(self, *args: object, **kwargs: object) -> None:
         super().__init__(*args, **kwargs)
         self.setAutoFillBackground(False)
-        self.setAttribute(
-            Qt.WidgetAttribute.WA_TranslucentBackground,
-            True,
-        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
 
     def enterEvent(self, event: QEvent) -> None:
         super().enterEvent(event)
@@ -62,13 +40,12 @@ class NeumorphicButton(QPushButton):
 
     def changeEvent(self, event: QEvent) -> None:
         super().changeEvent(event)
-        if event.type() == QEvent.Type.EnabledChange:
+        if event.type() in (QEvent.Type.EnabledChange, QEvent.Type.StyleChange):
             self.update()
 
     def paintEvent(self, event: QEvent) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-
         bounds = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
         radius = float(ThemeSpacing.BORDER_RADIUS)
 
@@ -79,42 +56,46 @@ class NeumorphicButton(QPushButton):
                 -ThemeDepth.BUTTON_SURFACE_INSET,
                 -ThemeDepth.BUTTON_SURFACE_INSET,
             )
-            painter.fillPath(
-                rounded_path(surface, radius),
-                QColor(ThemeColors.BG_INPUT),
-            )
+            painter.fillPath(rounded_path(surface, radius), QColor(ThemeColors.BG_INPUT))
             surface = draw_inset_surface(
                 painter,
                 surface.adjusted(-1.0, -1.0, 1.0, 1.0),
                 radius=radius,
-                dark_strength=ThemeDepth.BUTTON_DARK_ALPHA,
-                light_strength=125,
+                dark_strength=190,
+                light_strength=78,
                 depth=9.0,
                 focused=self.hasFocus(),
                 disabled=not self.isEnabled(),
                 fill_base=False,
             )
         else:
+            hovered = self.underMouse() and self.isEnabled()
             surface = draw_raised_surface(
                 painter,
                 bounds,
                 radius=radius,
                 surface_inset=ThemeDepth.BUTTON_SURFACE_INSET,
-                light_offset=ThemeDepth.BUTTON_OFFSET,
-                dark_offset=ThemeDepth.BUTTON_OFFSET,
+                light_offset=(
+                    ThemeDepth.BUTTON_HOVER_OFFSET if hovered else ThemeDepth.BUTTON_OFFSET
+                ),
+                dark_offset=(
+                    ThemeDepth.BUTTON_HOVER_OFFSET if hovered else ThemeDepth.BUTTON_OFFSET
+                ),
                 light_strength=(
                     ThemeDepth.BUTTON_HOVER_LIGHT_ALPHA
-                    if self.underMouse()
+                    if hovered
                     else ThemeDepth.BUTTON_LIGHT_ALPHA
                 ),
                 dark_strength=(
                     ThemeDepth.BUTTON_HOVER_DARK_ALPHA
-                    if self.underMouse()
+                    if hovered
                     else ThemeDepth.BUTTON_DARK_ALPHA
                 ),
-                hovered=self.underMouse(),
+                blur=(ThemeDepth.BUTTON_HOVER_BLUR if hovered else ThemeDepth.BUTTON_BLUR),
+                hovered=hovered,
                 focused=self.hasFocus(),
                 disabled=not self.isEnabled(),
+                dpr=self.devicePixelRatioF(),
             )
 
         option = QStyleOptionButton()
@@ -130,11 +111,7 @@ class NeumorphicButton(QPushButton):
         else:
             text_color = ThemeColors.TEXT_PRIMARY
 
-        option.palette.setColor(
-            QPalette.ColorRole.ButtonText,
-            QColor(text_color),
-        )
-
+        option.palette.setColor(QPalette.ColorRole.ButtonText, QColor(text_color))
         self.style().drawControl(
             QStyle.ControlElement.CE_PushButtonLabel,
             option,
@@ -145,35 +122,24 @@ class NeumorphicButton(QPushButton):
 
 
 class NeumorphicLineEdit(QLineEdit):
-    """QLineEdit with a deterministic recessed material cavity."""
+    """Native QLineEdit painted as a recessed dark-material cavity."""
 
     def __init__(self, *args: object, **kwargs: object) -> None:
         super().__init__(*args, **kwargs)
         self.setFrame(False)
         self.setAutoFillBackground(False)
-        self.setAttribute(
-            Qt.WidgetAttribute.WA_TranslucentBackground,
-            True,
-        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
 
         palette = self.palette()
         palette.setColor(QPalette.ColorRole.Base, QColor(0, 0, 0, 0))
         palette.setColor(QPalette.ColorRole.Window, QColor(0, 0, 0, 0))
+        palette.setColor(QPalette.ColorRole.Text, QColor(ThemeColors.TEXT_PRIMARY))
         palette.setColor(
-            QPalette.ColorRole.Text,
-            QColor(ThemeColors.TEXT_PRIMARY),
+            QPalette.ColorRole.PlaceholderText, QColor(ThemeColors.TEXT_DISABLED)
         )
+        palette.setColor(QPalette.ColorRole.Highlight, QColor(ThemeColors.PRIMARY))
         palette.setColor(
-            QPalette.ColorRole.PlaceholderText,
-            QColor(ThemeColors.TEXT_DISABLED),
-        )
-        palette.setColor(
-            QPalette.ColorRole.Highlight,
-            QColor(ThemeColors.PRIMARY),
-        )
-        palette.setColor(
-            QPalette.ColorRole.HighlightedText,
-            QColor(ThemeColors.TEXT_ON_PRIMARY),
+            QPalette.ColorRole.HighlightedText, QColor(ThemeColors.TEXT_ON_PRIMARY)
         )
         self.setPalette(palette)
 
@@ -185,6 +151,11 @@ class NeumorphicLineEdit(QLineEdit):
         super().focusOutEvent(event)
         self.update()
 
+    def changeEvent(self, event: QEvent) -> None:
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.EnabledChange:
+            self.update()
+
     def paintEvent(self, event: QEvent) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
@@ -194,33 +165,26 @@ class NeumorphicLineEdit(QLineEdit):
             radius=float(ThemeSpacing.BORDER_RADIUS),
             dark_strength=ThemeDepth.INPUT_DARK_ALPHA,
             light_strength=ThemeDepth.INPUT_LIGHT_ALPHA,
-            depth=11.0,
+            depth=ThemeDepth.INPUT_DEPTH,
             focused=self.hasFocus(),
             disabled=not self.isEnabled(),
             fill_base=True,
         )
         painter.end()
-
-        # Transparent QSS base/frame => native Qt paints only text/caret/etc.
+        # QSS removes the native frame/background, so Qt now paints only text,
+        # selection, cursor and the clear button over the custom cavity.
         super().paintEvent(event)
 
 
 class NeumorphicBadge(QLabel):
-    """Small raised shortcut badge using the same deterministic painter."""
+    """Small raised keyboard-shortcut badge."""
 
-    def __init__(
-        self,
-        shortcut: str,
-        parent: QWidget | None = None,
-    ) -> None:
+    def __init__(self, shortcut: str, parent: QWidget | None = None) -> None:
         super().__init__(shortcut, parent)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setFixedHeight(20)
         self.setAutoFillBackground(False)
-        self.setAttribute(
-            Qt.WidgetAttribute.WA_TranslucentBackground,
-            True,
-        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
 
         font = self.font()
         font.setFamily(ThemeFonts.MONO)
@@ -231,7 +195,6 @@ class NeumorphicBadge(QLabel):
     def paintEvent(self, event: QEvent) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-
         surface = draw_raised_surface(
             painter,
             QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5),
@@ -241,44 +204,25 @@ class NeumorphicBadge(QLabel):
             dark_offset=ThemeDepth.BADGE_OFFSET,
             light_strength=ThemeDepth.BADGE_LIGHT_ALPHA,
             dark_strength=ThemeDepth.BADGE_DARK_ALPHA,
+            blur=ThemeDepth.BADGE_BLUR,
+            dpr=self.devicePixelRatioF(),
         )
-
         painter.setPen(QColor(ThemeColors.TEXT_SECONDARY))
-        painter.drawText(
-            surface,
-            Qt.AlignmentFlag.AlignCenter,
-            self.text(),
-        )
+        painter.drawText(surface, Qt.AlignmentFlag.AlignCenter, self.text())
         painter.end()
 
 
 class InsetShadowOverlay(QWidget):
-    """Non-interactive edge overlay for existing scroll/panel widgets."""
+    """Non-interactive inset depth overlay for existing data panels."""
 
-    def __init__(
-        self,
-        target: QWidget,
-        *,
-        radius: float = 12.0,
-    ) -> None:
+    def __init__(self, target: QWidget, *, radius: float = 12.0) -> None:
         super().__init__(target)
         self._target = target
         self._radius = radius
-
-        self.setAttribute(
-            Qt.WidgetAttribute.WA_TransparentForMouseEvents,
-            True,
-        )
-        self.setAttribute(
-            Qt.WidgetAttribute.WA_TranslucentBackground,
-            True,
-        )
-        self.setAttribute(
-            Qt.WidgetAttribute.WA_NoSystemBackground,
-            True,
-        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-
         target.installEventFilter(self)
         self.setGeometry(target.rect())
         self.show()
@@ -304,7 +248,7 @@ class InsetShadowOverlay(QWidget):
             radius=self._radius,
             dark_strength=ThemeDepth.PANEL_DARK_ALPHA,
             light_strength=ThemeDepth.PANEL_LIGHT_ALPHA,
-            depth=14.0,
+            depth=ThemeDepth.PANEL_DEPTH,
             fill_base=False,
         )
         painter.end()
@@ -316,7 +260,7 @@ def install_inset_overlay(
     radius: float = 12.0,
     use_viewport: bool = False,
 ) -> InsetShadowOverlay:
-    """Paint inset depth above an existing widget without changing geometry."""
+    """Add inset depth without changing the target widget's geometry."""
 
     target = widget
     if use_viewport and hasattr(widget, "viewport"):
