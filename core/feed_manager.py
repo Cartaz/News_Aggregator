@@ -2,8 +2,8 @@
 
 Mantiene lo stato delle sorgenti in memoria e lo persiste in JSON nella
 directory XDG. Emette eventi tramite ``EventBus``. Serializzazione in
-``feed_serializer``, scritture in ``feed_write_ops``, letture aggregate in
-``category_ops``.
+``feed_serializer``, scritture in ``feed_write_ops``, letture aggregate
+in ``category_ops`` (split per il limite di 300 righe per file §5.1.3).
 """
 
 from __future__ import annotations
@@ -33,9 +33,18 @@ logger = logging.getLogger(__name__)
 
 
 class FeedManager:
-    """Catalogo centrale delle sorgenti feed, thread-safe tramite RLock."""
+    """Catalogo centrale delle sorgenti feed.
+
+    Thread-safe tramite RLock. Le scritture emettono eventi sull'event
+    bus; le letture restituiscono copie difensive.
+    """
 
     def __init__(self, storage_path: Path | None = None) -> None:
+        """Inizializza il manager.
+
+        Args:
+            storage_path: Percorso file JSON; default ``Paths.FEEDS_FILE``.
+        """
         self._path: Path = storage_path or Paths.FEEDS_FILE
         self._sources: dict[str, FeedSource] = {}
         self._lock: threading.RLock = threading.RLock()
@@ -67,7 +76,9 @@ class FeedManager:
         try:
             with self._lock:
                 data: dict[str, Any] = {
-                    "sources": [serialize_source(s) for s in self._sources.values()]
+                    "sources": [
+                        serialize_source(s) for s in self._sources.values()
+                    ]
                 }
             self._path.write_text(
                 json.dumps(data, indent=2, default=str),
@@ -77,7 +88,12 @@ class FeedManager:
             logger.error("Impossibile salvare i feed: %s", exc)
 
     def add(self, url: str, title: str = "") -> FeedSource:
-        """Aggiunge una nuova sorgente feed."""
+        """Aggiunge una nuova sorgente feed.
+
+        Raises:
+            FeedDuplicateError: Se l'URL esiste già.
+            FeedError: Se l'URL è vuoto.
+        """
         normalized: str = url.strip()
         if not normalized:
             raise FeedError("URL vuoto non valido")
@@ -96,7 +112,11 @@ class FeedManager:
         return source
 
     def remove(self, source_id: str) -> None:
-        """Rimuove una sorgente per ID."""
+        """Rimuove una sorgente per ID.
+
+        Raises:
+            FeedNotFoundError: Se l'ID non esiste.
+        """
         with self._lock:
             if source_id not in self._sources:
                 raise FeedNotFoundError(source_id)
@@ -116,12 +136,16 @@ class FeedManager:
             return self._sources[source_id]
 
     def get_all(self) -> list[FeedSource]:
-        """Restituisce tutte le sorgenti."""
+        """Restituisce tutte le sorgenti (copia difensiva)."""
         with self._lock:
             return list(self._sources.values())
 
     def refresh(self, source_id: str) -> int:
-        """Aggiorna una singola sorgente e restituisce i nuovi articoli visibili."""
+        """Aggiorna una singola sorgente (chiamata bloccante).
+
+        Returns:
+            Numero di articoli nuovi trovati.
+        """
         with self._lock:
             if source_id not in self._sources:
                 raise FeedNotFoundError(source_id)
@@ -145,15 +169,15 @@ class FeedManager:
             logger.error("Refresh fallito per %s: %s", source.url, exc)
             raise
 
-        # Filtra prima del confronto con gli item già memorizzati. In caso
-        # contrario, gli elementi vecchi restituiti ancora dal feed remoto ma
-        # già potati localmente verrebbero classificati come "nuovi" ad ogni
-        # refresh, generando notifiche duplicate.
+        # Filtra prima del confronto con gli item già memorizzati. Gli
+        # articoli fuori dalla finestra visibile vengono potati localmente;
+        # confrontarli prima del pruning li farebbe risultare "nuovi" ad ogni
+        # refresh successivo, generando notifiche duplicate.
         cutoff: datetime = datetime.now(timezone.utc) - timedelta(
             hours=FeedDefaults.MAX_ITEM_AGE_HOURS
         )
         visible_items: list[FeedItem] = [
-            item for item in items if item.published >= cutoff
+            it for it in items if it.published >= cutoff
         ][: FeedDefaults.MAX_ITEMS_PER_FEED]
 
         with self._lock:
@@ -172,7 +196,14 @@ class FeedManager:
         self,
         progress_cb: Callable[[str, int, int], None] | None = None,
     ) -> dict[str, Any]:
-        """Aggiorna tutte le sorgenti abilitate."""
+        """Aggiorna tutte le sorgenti abilitate.
+
+        Args:
+            progress_cb: Callback (source_id, current, total).
+
+        Returns:
+            Dict con ``success``, ``failed``, ``errors``.
+        """
         with self._lock:
             sources: list[FeedSource] = [
                 s for s in self._sources.values() if s.enabled
@@ -204,13 +235,17 @@ class FeedManager:
         )
 
     def rename_feed(self, source_id: str, new_title: str) -> FeedSource:
-        """Rinomina una sorgente feed."""
+        """Rinomina una sorgente feed.
+
+        Raises:
+            FeedNotFoundError: Se il titolo è vuoto o la sorgente non esiste.
+        """
         from core.feed_write_ops import rename_feed
 
         return rename_feed(self, source_id, new_title)
 
     def set_category(self, source_id: str, category: str) -> FeedSource:
-        """Assegna o rimuove la categoria di una sorgente."""
+        """Assegna (o rimuove, se vuota) la categoria di una sorgente."""
         from core.feed_write_ops import set_category
 
         return set_category(self, source_id, category)
@@ -218,25 +253,21 @@ class FeedManager:
     def get_categories(self) -> list[str]:
         """Elenco ordinato delle categorie in uso."""
         from core.category_ops import list_categories
-
         return list_categories(self)
 
     def get_feeds_by_category(self, category: str) -> list[FeedSource]:
         """Restituisce le sorgenti assegnate a una categoria."""
         from core.category_ops import get_feeds_by_category
-
         return get_feeds_by_category(self, category)
 
     def get_items_by_category(self, category: str, limit: int = 200) -> list[FeedItem]:
-        """Articoli aggregati di tutti i feed in una categoria."""
+        """Articoli aggregati di tutti i feed in una categoria (mega-feed)."""
         from core.category_ops import get_items_by_category
-
         return get_items_by_category(self, category, limit)
 
     def get_all_items(self, limit: int = 200) -> list[FeedItem]:
-        """Tutti gli articoli di tutte le sorgenti."""
+        """Tutti gli articoli di tutte le sorgenti (mega-feed globale)."""
         from core.category_ops import get_all_items
-
         return get_all_items(self, limit)
 
     def _emit_refresh_completed(
