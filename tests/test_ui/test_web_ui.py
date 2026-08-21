@@ -68,6 +68,18 @@ def test_refresh_ui_recovers_from_missed_finish_signal() -> None:
     assert "state.refresh.backendSeenRunning = false;" in app_js
 
 
+def test_segmented_refresh_progress_is_visible_and_event_driven() -> None:
+    articles_js = (WEB_ROOT / "articles.js").read_text(encoding="utf-8")
+    app_js = (WEB_ROOT / "app.js").read_text(encoding="utf-8")
+
+    assert "function ensureRefreshSegments(total)" in articles_js
+    assert "rgba(255,102,0,.22)" in articles_js
+    assert "inset 0 0 0 1px rgba(255,102,0,.20)" in articles_js
+    assert "function recordCompletedRefreshFeed(sourceId)" in app_js
+    assert "recordCompletedRefreshFeed(event.payload?.source_id);" in app_js
+    assert "state.refresh.completedFeedIds" in app_js
+
+
 def test_bridge_normalizes_user_urls() -> None:
     pytest.importorskip("PySide6")
     from ui.bridge import WebBridge
