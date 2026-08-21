@@ -1,10 +1,4 @@
-"""Gestore centrale dei feed: aggiunta, rimozione, refresh, persistenza.
-
-Mantiene lo stato delle sorgenti in memoria e lo persiste in JSON nella
-directory XDG. Emette eventi tramite ``EventBus``. Serializzazione in
-``feed_serializer``, scritture in ``feed_write_ops``, letture aggregate
-in ``category_ops``.
-"""
+"""Gestore centrale dei feed: aggiunta, rimozione, refresh e persistenza."""
 
 from __future__ import annotations
 
@@ -25,7 +19,7 @@ from core.exceptions import (
     FeedNotFoundError,
     FeedParseError,
 )
-from core.feed_fetcher import fetch_and_parse_resolved
+from core.feed_fetcher import FeedFetchResult, fetch_and_parse_resolved
 from core.feed_serializer import deserialize_source, serialize_source
 from core.models import FeedItem, FeedSource
 
@@ -38,13 +32,12 @@ class FeedManager:
     def __init__(self, storage_path: Path | None = None) -> None:
         self._path: Path = storage_path or Paths.FEEDS_FILE
         self._sources: dict[str, FeedSource] = {}
-        self._lock: threading.RLock = threading.RLock()
-        self._bus: EventBus = EventBus()
+        self._lock = threading.RLock()
+        self._bus = EventBus()
         Paths.ensure_user_dirs()
         self.load()
 
     def load(self) -> None:
-        """Carica le sorgenti feed da disco."""
         if not self._path.exists():
             logger.info("File feed non trovato, raccolta vuota: %s", self._path)
             return
@@ -57,37 +50,32 @@ class FeedManager:
             self._sources.clear()
             for src_data in raw.get("sources", []):
                 try:
-                    source: FeedSource = deserialize_source(src_data)
+                    source = deserialize_source(src_data)
                     self._sources[source.id] = source
                 except (KeyError, TypeError, ValueError) as exc:
                     logger.warning("Feed ignorato (dati non validi): %s", exc)
 
     def save(self) -> None:
-        """Persiste le sorgenti su disco."""
         try:
             with self._lock:
-                data: dict[str, Any] = {
-                    "sources": [
-                        serialize_source(s) for s in self._sources.values()
-                    ]
+                data = {
+                    "sources": [serialize_source(s) for s in self._sources.values()]
                 }
             self._path.write_text(
-                json.dumps(data, indent=2, default=str),
-                encoding="utf-8",
+                json.dumps(data, indent=2, default=str), encoding="utf-8"
             )
         except OSError as exc:
             logger.error("Impossibile salvare i feed: %s", exc)
 
     def add(self, url: str, title: str = "") -> FeedSource:
-        """Aggiunge una nuova sorgente feed."""
-        normalized: str = url.strip()
+        normalized = url.strip()
         if not normalized:
             raise FeedError("URL vuoto non valido")
         with self._lock:
             for src in self._sources.values():
                 if src.url == normalized:
                     raise FeedDuplicateError(normalized)
-            source: FeedSource = FeedSource(url=normalized, title=title or normalized)
+            source = FeedSource(url=normalized, title=title or normalized)
             self._sources[source.id] = source
         self.save()
         self._bus.emit(
@@ -98,52 +86,75 @@ class FeedManager:
         return source
 
     def remove(self, source_id: str) -> None:
-        """Rimuove una sorgente per ID."""
         with self._lock:
             if source_id not in self._sources:
                 raise FeedNotFoundError(source_id)
-            removed: FeedSource = self._sources.pop(source_id)
+            removed = self._sources.pop(source_id)
         self.save()
         self._bus.emit(
-            "feed_removed",
-            {"source_id": source_id, "url": removed.url},
+            "feed_removed", {"source_id": source_id, "url": removed.url}
         )
         logger.info("Feed rimosso: %s", removed.url)
 
     def get(self, source_id: str) -> FeedSource:
-        """Restituisce una sorgente per ID."""
         with self._lock:
             if source_id not in self._sources:
                 raise FeedNotFoundError(source_id)
             return self._sources[source_id]
 
     def get_all(self) -> list[FeedSource]:
-        """Restituisce tutte le sorgenti."""
         with self._lock:
             return list(self._sources.values())
 
-    def _fetch_source(
-        self, source: FeedSource
-    ) -> tuple[str, list[FeedItem], str]:
-        """Recupera una sorgente usando prima l'URL feed risolto cached.
+    @staticmethod
+    def _normalize_fetch_result(raw: Any, requested_url: str) -> FeedFetchResult:
+        """Accetta anche i vecchi tuple mock usati dai test/integrazioni."""
+        if isinstance(raw, FeedFetchResult):
+            return raw
+        title, items, resolved_url = raw
+        return FeedFetchResult(title, items, resolved_url or requested_url)
 
-        Se la cache non è più valida, viene invalidata e si riparte dall'URL
-        originale inserito dall'utente, che può rifare auto-discovery e
-        produrre una nuova cache.
-        """
+    def _clear_validators(self, source: FeedSource) -> None:
+        with self._lock:
+            current = self._sources.get(source.id)
+            if current is not None:
+                current.http_etag = ""
+                current.http_last_modified = ""
+
+    def _fetch_effective_url(
+        self, source: FeedSource, url: str
+    ) -> FeedFetchResult:
+        """Fetch dell'URL effettivo; se i validator falliscono, retry pieno."""
+        kwargs: dict[str, str] = {}
+        if source.http_etag:
+            kwargs["etag"] = source.http_etag
+        if source.http_last_modified:
+            kwargs["last_modified"] = source.http_last_modified
+        try:
+            raw = fetch_and_parse_resolved(url, source.id, **kwargs)
+            return self._normalize_fetch_result(raw, url)
+        except (FeedFetchError, FeedParseError):
+            if not kwargs:
+                raise
+            logger.info(
+                "Richiesta condizionale fallita per %s; riprovo senza validator",
+                url,
+            )
+            self._clear_validators(source)
+            self.save()
+            raw = fetch_and_parse_resolved(url, source.id)
+            return self._normalize_fetch_result(raw, url)
+
+    def _fetch_source(self, source: FeedSource) -> FeedFetchResult:
+        """Usa prima il feed risolto cached, poi fallback all'URL originale."""
         cached_url = source.resolved_feed_url.strip()
         if cached_url:
             try:
-                logger.debug(
-                    "Uso feed risolto cached per %s: %s",
-                    source.url,
-                    cached_url,
-                )
-                return fetch_and_parse_resolved(cached_url, source.id)
+                logger.debug("Uso feed cached per %s: %s", source.url, cached_url)
+                return self._fetch_effective_url(source, cached_url)
             except (FeedFetchError, FeedParseError) as exc:
                 logger.info(
-                    "Feed risolto cached non più valido per %s (%s); "
-                    "rifaccio auto-discovery dall'URL originale",
+                    "Feed cached non più valido per %s (%s); rifaccio discovery",
                     source.url,
                     exc,
                 )
@@ -151,23 +162,34 @@ class FeedManager:
                     current = self._sources.get(source.id)
                     if current is not None:
                         current.resolved_feed_url = ""
+                        current.http_etag = ""
+                        current.http_last_modified = ""
                 self.save()
+        return self._fetch_effective_url(source, source.url)
 
-        return fetch_and_parse_resolved(source.url, source.id)
+    def _store_fetch_metadata(
+        self, source: FeedSource, result: FeedFetchResult
+    ) -> None:
+        new_cached = (
+            result.resolved_url
+            if result.resolved_url and result.resolved_url != source.url
+            else ""
+        )
+        source.resolved_feed_url = new_cached
+        source.http_etag = result.etag
+        source.http_last_modified = result.last_modified
 
     def refresh(self, source_id: str) -> int:
-        """Aggiorna una singola sorgente (chiamata bloccante)."""
         with self._lock:
             if source_id not in self._sources:
                 raise FeedNotFoundError(source_id)
-            source: FeedSource = self._sources[source_id]
+            source = self._sources[source_id]
 
         self._bus.emit(
-            "feed_refresh_started",
-            {"source_id": source_id, "url": source.url},
+            "feed_refresh_started", {"source_id": source_id, "url": source.url}
         )
         try:
-            feed_title, items, resolved_url = self._fetch_source(source)
+            result = self._fetch_source(source)
         except (FeedFetchError, FeedParseError) as exc:
             with self._lock:
                 src = self._sources.get(source_id)
@@ -180,20 +202,28 @@ class FeedManager:
             logger.error("Refresh fallito per %s: %s", source.url, exc)
             raise
 
-        cutoff: datetime = datetime.now(timezone.utc) - timedelta(
+        if result.not_modified:
+            with self._lock:
+                self._store_fetch_metadata(source, result)
+                source.last_updated = datetime.now(timezone.utc)
+                source.last_error = ""
+            self.save()
+            self._emit_refresh_completed(source_id, source, [], not_modified=True)
+            logger.info("Feed %s non modificato (HTTP 304)", source.url)
+            return 0
+
+        cutoff = datetime.now(timezone.utc) - timedelta(
             hours=FeedDefaults.MAX_ITEM_AGE_HOURS
         )
-        visible_items: list[FeedItem] = [
-            it for it in items if it.published >= cutoff
+        visible_items = [
+            it for it in result.items if it.published >= cutoff
         ][: FeedDefaults.MAX_ITEMS_PER_FEED]
 
         with self._lock:
             if not source.title or source.title == source.url:
-                source.title = feed_title
-            source.resolved_feed_url = (
-                resolved_url if resolved_url and resolved_url != source.url else ""
-            )
-            brand_new: list[FeedItem] = source.replace_items(visible_items)
+                source.title = result.title
+            self._store_fetch_metadata(source, result)
+            brand_new = source.replace_items(visible_items)
 
         self.save()
         self._emit_refresh_completed(source_id, source, brand_new)
@@ -206,13 +236,10 @@ class FeedManager:
         self,
         progress_cb: Callable[[str, int, int], None] | None = None,
     ) -> dict[str, Any]:
-        """Aggiorna tutte le sorgenti abilitate."""
         with self._lock:
-            sources: list[FeedSource] = [
-                s for s in self._sources.values() if s.enabled
-            ]
-        total: int = len(sources)
-        success: int = 0
+            sources = [s for s in self._sources.values() if s.enabled]
+        total = len(sources)
+        success = 0
         errors: list[str] = []
         for completed, source in enumerate(sources, start=1):
             try:
@@ -226,9 +253,8 @@ class FeedManager:
         return {"success": success, "failed": len(errors), "errors": errors}
 
     def mark_read(self, source_id: str, item_id: str) -> None:
-        """Marca un articolo come letto."""
         with self._lock:
-            source: FeedSource | None = self._sources.get(source_id)
+            source = self._sources.get(source_id)
             if not source:
                 raise FeedNotFoundError(source_id)
             source.mark_read(item_id)
@@ -239,39 +265,27 @@ class FeedManager:
         )
 
     def rename_feed(self, source_id: str, new_title: str) -> FeedSource:
-        """Rinomina una sorgente feed."""
         from core.feed_write_ops import rename_feed
-
         return rename_feed(self, source_id, new_title)
 
     def set_category(self, source_id: str, category: str) -> FeedSource:
-        """Assegna (o rimuove, se vuota) la categoria di una sorgente."""
         from core.feed_write_ops import set_category
-
         return set_category(self, source_id, category)
 
     def get_categories(self) -> list[str]:
-        """Elenco ordinato delle categorie in uso."""
         from core.category_ops import list_categories
-
         return list_categories(self)
 
     def get_feeds_by_category(self, category: str) -> list[FeedSource]:
-        """Restituisce le sorgenti assegnate a una categoria."""
         from core.category_ops import get_feeds_by_category
-
         return get_feeds_by_category(self, category)
 
     def get_items_by_category(self, category: str, limit: int = 200) -> list[FeedItem]:
-        """Articoli aggregati di tutti i feed in una categoria."""
         from core.category_ops import get_items_by_category
-
         return get_items_by_category(self, category, limit)
 
     def get_all_items(self, limit: int = 200) -> list[FeedItem]:
-        """Tutti gli articoli di tutte le sorgenti."""
         from core.category_ops import get_all_items
-
         return get_all_items(self, limit)
 
     def _emit_refresh_completed(
@@ -279,8 +293,9 @@ class FeedManager:
         source_id: str,
         source: FeedSource,
         brand_new: list[FeedItem],
+        *,
+        not_modified: bool = False,
     ) -> None:
-        """Emette gli eventi refresh_completed e new_items_available."""
         self._bus.emit(
             "feed_refresh_completed",
             {
@@ -289,6 +304,7 @@ class FeedManager:
                 "title": source.title,
                 "new_count": len(brand_new),
                 "total_count": len(source.items),
+                "not_modified": not_modified,
             },
         )
         if brand_new:

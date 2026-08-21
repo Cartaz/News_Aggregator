@@ -1,8 +1,4 @@
-"""Serializzazione/deserializzazione JSON delle sorgenti feed.
-
-Estratto da ``feed_manager.py`` per rispettare il limite di 300 righe
-per file (§5.1.3). Tutta la logica di (de)serializzazione è qui.
-"""
+"""Serializzazione/deserializzazione JSON delle sorgenti feed."""
 
 from __future__ import annotations
 
@@ -27,12 +23,13 @@ def serialize_source(source: FeedSource) -> dict[str, Any]:
         "last_error": source.last_error,
         "category": source.category,
         "resolved_feed_url": source.resolved_feed_url,
+        "http_etag": source.http_etag,
+        "http_last_modified": source.http_last_modified,
         "items": [_serialize_item(it) for it in source.items],
     }
 
 
 def _serialize_item(item: FeedItem) -> dict[str, Any]:
-    """Serializza un ``FeedItem``."""
     return {
         "id": item.id,
         "source_id": item.source_id,
@@ -46,11 +43,7 @@ def _serialize_item(item: FeedItem) -> dict[str, Any]:
 
 
 def deserialize_source(data: dict[str, Any]) -> FeedSource:
-    """Deserializza una ``FeedSource`` da dict JSON.
-
-    I file creati prima dell'introduzione della cache URL restano validi:
-    ``resolved_feed_url`` è opzionale e per default è vuoto.
-    """
+    """Deserializza una sorgente mantenendo compatibilità con vecchi JSON."""
     source: FeedSource = FeedSource(
         url=data["url"],
         title=data.get("title", data["url"]),
@@ -58,6 +51,8 @@ def deserialize_source(data: dict[str, Any]) -> FeedSource:
         last_error=data.get("last_error", ""),
         category=data.get("category", ""),
         resolved_feed_url=data.get("resolved_feed_url", ""),
+        http_etag=data.get("http_etag", ""),
+        http_last_modified=data.get("http_last_modified", ""),
     )
     last_str: str | None = data.get("last_updated")
     if last_str:
@@ -74,7 +69,6 @@ def deserialize_source(data: dict[str, Any]) -> FeedSource:
 
 
 def _deserialize_item(data: dict[str, Any]) -> FeedItem:
-    """Deserializza un ``FeedItem`` da dict JSON."""
     published: datetime = datetime.fromisoformat(data["published"])
     return FeedItem(
         id=data["id"],

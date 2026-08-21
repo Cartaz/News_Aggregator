@@ -18,31 +18,13 @@ def _utcnow() -> datetime:
 
 
 def _make_feed_id(url: str) -> str:
-    """Genera un ID stabile per un feed a partire dall'URL.
-
-    Args:
-        url: URL del feed.
-
-    Returns:
-        Hash SHA1 esadecimale di 12 caratteri.
-    """
+    """Genera un ID stabile per un feed a partire dall'URL."""
     return hashlib.sha1(url.encode("utf-8")).hexdigest()[:12]
 
 
 @dataclass(frozen=True)
 class FeedItem:
-    """Singolo articolo di un feed.
-
-    Attributes:
-        id: Identificatore stabile (hash del link).
-        source_id: ID del feed di appartenenza.
-        title: Titolo dell'articolo.
-        link: URL canonico dell'articolo.
-        summary: Testo pulito (HTML rimosso), troncato a max_length.
-        published: Data di pubblicazione (timezone-aware).
-        author: Autore se disponibile.
-        read: True se l'utente ha già letto l'articolo.
-    """
+    """Singolo articolo di un feed."""
 
     id: str
     source_id: str
@@ -80,19 +62,10 @@ class FeedItem:
 class FeedSource:
     """Sorgente feed RSS/Atom aggiunta dall'utente.
 
-    Attributes:
-        url: URL originale inserito dall'utente. Rimane stabile e determina
-            l'ID della sorgente.
-        title: Titolo del feed (estratto o personalizzato).
-        enabled: Se True, il feed viene aggiornato automaticamente.
-        last_updated: Timestamp dell'ultimo aggiornamento riuscito.
-        last_error: Ultimo messaggio di errore (vuoto se tutto OK).
-        items: Lista articoli correnti (più recenti per primi).
-        category: Nome della cartella/categoria a cui appartiene; vuoto
-            se il feed non è assegnato ad alcuna categoria.
-        resolved_feed_url: URL RSS/Atom scoperto a partire da ``url``. È una
-            cache opzionale: non cambia l'identità della sorgente e può essere
-            invalidata se il feed risolto smette di funzionare.
+    ``url`` resta l'identità stabile della sorgente. ``resolved_feed_url`` è
+    la cache del feed RSS/Atom effettivo. ``http_etag`` e
+    ``http_last_modified`` appartengono sempre all'URL effettivo corrente e
+    vengono invalidati quando tale URL cambia.
     """
 
     url: str
@@ -103,6 +76,8 @@ class FeedSource:
     items: list[FeedItem] = field(default_factory=list)
     category: str = ""
     resolved_feed_url: str = ""
+    http_etag: str = ""
+    http_last_modified: str = ""
 
     @property
     def id(self) -> str:
@@ -115,14 +90,7 @@ class FeedSource:
         return sum(1 for item in self.items if not item.read)
 
     def replace_items(self, new_items: Iterable[FeedItem]) -> list[FeedItem]:
-        """Sostituisce gli articoli preservando lo stato ``read``.
-
-        Args:
-            new_items: Nuova collezione di articoli dal parser.
-
-        Returns:
-            Lista degli articoli effettivamente nuovi (mai visti prima).
-        """
+        """Sostituisce gli articoli preservando lo stato ``read``."""
         previous_ids: dict[str, FeedItem] = {it.id: it for it in self.items}
         new_list: list[FeedItem] = []
         brand_new: list[FeedItem] = []
@@ -150,11 +118,7 @@ class FeedSource:
         return brand_new
 
     def mark_read(self, item_id: str) -> bool:
-        """Marca un articolo come letto per ID.
-
-        Returns:
-            True se l'articolo è stato trovato e aggiornato.
-        """
+        """Marca un articolo come letto per ID."""
         for idx, item in enumerate(self.items):
             if item.id == item_id:
                 self.items[idx] = FeedItem(
@@ -173,20 +137,12 @@ class FeedSource:
 
 @dataclass(frozen=True)
 class FeedCategory:
-    """Cartella che raggruppa più sorgenti feed.
-
-    Utile per creare "mega-feed" tematici (es. Tech, Economia, Giochi)
-    che aggregano gli articoli di tutti i feed assegnati.
-
-    Attributes:
-        name: Nome visualizzato della cartella (univoco).
-    """
+    """Cartella che raggruppa più sorgenti feed."""
 
     name: str
 
     @property
     def id(self) -> str:
-        """ID stabile derivato dal nome (case-insensitive)."""
         return hashlib.sha1(self.name.lower().encode("utf-8")).hexdigest()[:12]
 
 

@@ -1,18 +1,14 @@
-"""Recupero feed via HTTP, auto-discovery e parsing del contenuto.
-
-Usa ``fetch_url`` (con fallback ``curl_cffi``) per il download, e
-``feed_link_extractor`` per l'auto-discovery dei feed RSS/Atom da
-pagine HTML. Framework-agnostic: solleva ``FeedError``.
-"""
+"""Recupero feed via HTTP, auto-discovery, cache validation e parsing."""
 
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from urllib.parse import urlparse
 
 from config.constants import FeedDefaults
 from core.exceptions import FeedFetchError, FeedParseError
-from core.feed_http import fetch_url
+from core.feed_http import HttpFetchResult, fetch_url_response
 from core.feed_link_extractor import extract_feed_links
 from core.feed_parser import parse_feed_bytes
 from core.models import FeedItem
@@ -43,8 +39,25 @@ _KNOWN_FEED_OVERRIDES: dict[str, list[str]] = {
 }
 
 
+@dataclass(frozen=True)
+class FeedFetchResult:
+    """Feed parsato più URL effettivo e metadata HTTP."""
+
+    title: str
+    items: list[FeedItem]
+    resolved_url: str
+    etag: str = ""
+    last_modified: str = ""
+    not_modified: bool = False
+
+    def __iter__(self):  # type: ignore[no-untyped-def]
+        """Mantiene compatibilità con il vecchio unpacking a tre valori."""
+        yield self.title
+        yield self.items
+        yield self.resolved_url
+
+
 def _looks_like_xml(content: bytes) -> bool:
-    """Verifica se il contenuto appare essere XML (RSS/Atom)."""
     if not content:
         return False
     head: bytes = content[:500].lstrip()
@@ -54,7 +67,6 @@ def _looks_like_xml(content: bytes) -> bool:
 
 
 def _looks_like_html(content: bytes) -> bool:
-    """Verifica se il contenuto appare essere HTML."""
     if not content:
         return False
     head: bytes = content[:500].lstrip().lower()
@@ -62,7 +74,6 @@ def _looks_like_html(content: bytes) -> bool:
 
 
 def _is_feed_url(url: str) -> bool:
-    """Verifica se l'URL ha un'estensione che suggerisce un feed."""
     path: str = urlparse(url).path.lower()
     return any(
         path.endswith(ext)
@@ -70,32 +81,63 @@ def _is_feed_url(url: str) -> bool:
     )
 
 
+def _result_from_http(
+    response: HttpFetchResult,
+    source_id: str,
+    resolved_url: str,
+) -> FeedFetchResult:
+    if response.not_modified:
+        return FeedFetchResult(
+            title="",
+            items=[],
+            resolved_url=resolved_url,
+            etag=response.etag,
+            last_modified=response.last_modified,
+            not_modified=True,
+        )
+    title, items = parse_feed_bytes(response.content, source_id, resolved_url)
+    return FeedFetchResult(
+        title=title,
+        items=items,
+        resolved_url=resolved_url,
+        etag=response.etag,
+        last_modified=response.last_modified,
+    )
+
+
 def fetch_and_parse(
     url: str, source_id: str, timeout: int | None = None
 ) -> tuple[str, list[FeedItem]]:
     """API compatibile: recupera un feed e restituisce titolo + articoli."""
-    title, items, _resolved_url = fetch_and_parse_resolved(
-        url, source_id, timeout
-    )
-    return title, items
+    result = fetch_and_parse_resolved(url, source_id, timeout)
+    return result.title, result.items
 
 
 def fetch_and_parse_resolved(
-    url: str, source_id: str, timeout: int | None = None
-) -> tuple[str, list[FeedItem], str]:
-    """Recupera un feed e restituisce anche l'URL RSS/Atom effettivo.
+    url: str,
+    source_id: str,
+    timeout: int | None = None,
+    *,
+    etag: str = "",
+    last_modified: str = "",
+) -> FeedFetchResult:
+    """Recupera un feed includendo URL risolto e validator HTTP.
 
-    ``resolved_url`` coincide con ``url`` quando l'URL fornito è già un feed;
-    se invece ``url`` è una homepage o una pagina HTML, contiene l'URL trovato
-    tramite auto-discovery/fallback. Questo permette al chiamante di salvarlo
-    come cache ed evitare di ripetere la discovery ai refresh successivi.
+    I validator vanno passati solo quando ``url`` è già il feed effettivo
+    (URL diretto o ``resolved_feed_url`` cached). Se il server risponde 304,
+    il risultato ha ``not_modified=True`` e non viene eseguito il parsing.
     """
     actual_timeout: int = timeout or FeedDefaults.REQUEST_TIMEOUT_SECONDS
 
-    content: bytes = b""
-    fetch_failed: bool = False
+    response: HttpFetchResult | None = None
+    fetch_failed = False
     try:
-        content = fetch_url(url, actual_timeout)
+        response = fetch_url_response(
+            url,
+            actual_timeout,
+            etag=etag,
+            last_modified=last_modified,
+        )
     except FeedFetchError as exc:
         logger.debug(
             "Fetch iniziale fallito per %s, provo path fallback: %s",
@@ -104,32 +146,36 @@ def fetch_and_parse_resolved(
         )
         fetch_failed = True
 
-    if not fetch_failed:
+    if not fetch_failed and response is not None:
+        if response.not_modified:
+            return FeedFetchResult(
+                title="",
+                items=[],
+                resolved_url=url,
+                etag=response.etag,
+                last_modified=response.last_modified,
+                not_modified=True,
+            )
+        content = response.content
         if not content:
             raise FeedFetchError(url, "risposta vuota")
 
-        final_url: str = url
-
         if _looks_like_xml(content):
             logger.debug("Contenuto rilevato come XML, parsing diretto")
-            title, items = parse_feed_bytes(content, source_id, final_url)
-            return title, items, final_url
+            return _result_from_http(response, source_id, url)
 
-        feed_urls: list[str] = extract_feed_links(content, final_url)
+        feed_urls: list[str] = extract_feed_links(content, url)
         if feed_urls:
             logger.info(
                 "Auto-discovery: trovati %d feed in %s, provo %s",
                 len(feed_urls),
-                final_url,
+                url,
                 feed_urls[0],
             )
-            return _fetch_feed_recursive(
-                feed_urls[0], source_id, actual_timeout
-            )
+            return _fetch_feed_recursive(feed_urls[0], source_id, actual_timeout)
 
-        if not _is_feed_url(final_url):
-            candidates: list[str] = _guess_feed_paths(final_url)
-            for candidate in candidates:
+        if not _is_feed_url(url):
+            for candidate in _guess_feed_paths(url):
                 logger.info("Auto-discovery fallback: provo path %s", candidate)
                 try:
                     result = _fetch_feed_recursive(
@@ -139,31 +185,26 @@ def fetch_and_parse_resolved(
                     return result
                 except (FeedFetchError, FeedParseError) as exc:
                     logger.debug("Fallback path %s fallito: %s", candidate, exc)
-                    continue
 
         raise FeedParseError(
-            final_url,
+            url,
             "contenuto non è un feed RSS/Atom né una pagina HTML con link "
             "a un feed. Verifica che l'URL sia corretto.",
         )
 
     if not _is_feed_url(url):
-        candidates = _guess_feed_paths(url)
         last_exc: FeedFetchError | FeedParseError | None = None
-        for candidate in candidates:
+        for candidate in _guess_feed_paths(url):
             logger.info(
                 "Auto-discovery fallback (fetch fallito): provo %s", candidate
             )
             try:
-                result = _fetch_feed_recursive(
-                    candidate, source_id, actual_timeout
-                )
+                result = _fetch_feed_recursive(candidate, source_id, actual_timeout)
                 logger.info("Auto-discovery: feed trovato a %s", candidate)
                 return result
             except (FeedFetchError, FeedParseError) as exc:
                 logger.debug("Fallback path %s fallito: %s", candidate, exc)
                 last_exc = exc
-                continue
         if last_exc is not None:
             raise last_exc
 
@@ -175,25 +216,42 @@ def fetch_and_parse_resolved(
 
 
 def _fetch_feed_recursive(
-    url: str, source_id: str, timeout: int
-) -> tuple[str, list[FeedItem], str]:
+    url: str,
+    source_id: str,
+    timeout: int,
+    *,
+    etag: str = "",
+    last_modified: str = "",
+) -> FeedFetchResult:
     """Scarica e analizza un URL che si presume essere un feed."""
-    content: bytes = fetch_url(url, timeout)
-    if not content:
+    response = fetch_url_response(
+        url,
+        timeout,
+        etag=etag,
+        last_modified=last_modified,
+    )
+    if response.not_modified:
+        return FeedFetchResult(
+            title="",
+            items=[],
+            resolved_url=url,
+            etag=response.etag,
+            last_modified=response.last_modified,
+            not_modified=True,
+        )
+    if not response.content:
         raise FeedFetchError(url, "risposta vuota")
-    if _looks_like_html(content):
+    if _looks_like_html(response.content):
         raise FeedParseError(
             url,
             "il server ha risposto con HTML, non con un feed RSS/Atom. "
             "Possibile causa: WAF/bot-detection che serve una challenge "
             "page, oppure l'URL non punta a un feed reale.",
         )
-    title, items = parse_feed_bytes(content, source_id, url)
-    return title, items, url
+    return _result_from_http(response, source_id, url)
 
 
 def _guess_feed_paths(base_url: str) -> list[str]:
-    """Genera una lista di URL di feed plausibili da un URL base."""
     parsed = urlparse(base_url)
     if not parsed.scheme or not parsed.netloc:
         return []
@@ -215,4 +273,8 @@ def _guess_feed_paths(base_url: str) -> list[str]:
     return standard_paths + overrides
 
 
-__all__ = ["fetch_and_parse", "fetch_and_parse_resolved"]
+__all__ = [
+    "FeedFetchResult",
+    "fetch_and_parse",
+    "fetch_and_parse_resolved",
+]

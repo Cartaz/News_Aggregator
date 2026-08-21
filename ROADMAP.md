@@ -25,15 +25,18 @@ Questa roadmap raccoglie i miglioramenti tecnici pianificati dopo il completamen
 
 **Criterio di completamento:** dopo il primo refresh di una homepage, i refresh successivi non devono richiedere nuovamente la homepage finché il feed risolto resta valido.
 
-### A2. HTTP condizionale (`ETag` / `Last-Modified`) — PROSSIMO
+### A2. HTTP condizionale (`ETag` / `Last-Modified`) — COMPLETATO
 
-- [ ] Persistenza dei validator HTTP per sorgente/feed risolto.
-- [ ] Invio di `If-None-Match` / `If-Modified-Since`.
-- [ ] Gestione `304 Not Modified` senza parsing inutile.
-- [ ] Invalidazione validator quando cambia `resolved_feed_url`.
-- [ ] Test con risposte 200/304 e validator cambiati.
+- [x] Persistenza dei validator HTTP per sorgente/feed risolto.
+- [x] Invio di `If-None-Match` / `If-Modified-Since`.
+- [x] Gestione `304 Not Modified` senza parsing inutile.
+- [x] Invalidazione validator quando cambia `resolved_feed_url`.
+- [x] Retry non condizionale se un server rifiuta validator precedentemente validi.
+- [x] Test con risposte 200/304, persistenza e validator cambiati.
 
-### A3. Refresh concorrente limitato — PIANIFICATO
+**Criterio di completamento:** quando un server supporta validator HTTP, un feed invariato deve poter completare il refresh con `304 Not Modified` senza trasferire né riparsare il documento RSS/Atom.
+
+### A3. Refresh concorrente limitato — PROSSIMO
 
 - [ ] Pool conservativo di 3–4 worker.
 - [ ] Nessun doppio refresh della stessa sorgente.
@@ -113,7 +116,7 @@ Dipende da C1.
 ## Ordine di esecuzione previsto
 
 1. A1 — cache URL feed risolto ✅
-2. A2 — ETag / Last-Modified
+2. A2 — ETag / Last-Modified ✅
 3. A3 — refresh concorrente limitato
 4. B1 — stato refresh centralizzato
 5. B2 — deduplicazione robusta

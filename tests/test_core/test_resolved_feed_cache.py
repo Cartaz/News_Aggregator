@@ -9,6 +9,7 @@ import pytest
 
 from core.exceptions import FeedFetchError
 from core.feed_fetcher import fetch_and_parse_resolved
+from core.feed_http import HttpFetchResult
 from core.feed_manager import FeedManager
 from core.feed_serializer import deserialize_source
 
@@ -27,6 +28,8 @@ def test_old_json_without_resolved_url_remains_compatible() -> None:
         }
     )
     assert source.resolved_feed_url == ""
+    assert source.http_etag == ""
+    assert source.http_last_modified == ""
 
 
 def test_discovered_url_is_persisted(
@@ -96,8 +99,11 @@ def test_fetcher_reports_auto_discovered_feed_url(
 
     with (
         patch(
-            "core.feed_fetcher.fetch_url",
-            side_effect=[homepage, sample_rss_bytes],
+            "core.feed_fetcher.fetch_url_response",
+            side_effect=[
+                HttpFetchResult(homepage),
+                HttpFetchResult(sample_rss_bytes),
+            ],
         ),
         patch(
             "core.feed_fetcher.extract_feed_links",
