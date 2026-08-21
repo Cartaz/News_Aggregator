@@ -169,17 +169,21 @@ class FeedManager:
             logger.error("Refresh fallito per %s: %s", source.url, exc)
             raise
 
+        # Filtra prima del confronto con gli item già memorizzati. Gli
+        # articoli fuori dalla finestra visibile vengono potati localmente;
+        # confrontarli prima del pruning li farebbe risultare "nuovi" ad ogni
+        # refresh successivo, generando notifiche duplicate.
+        cutoff: datetime = datetime.now(timezone.utc) - timedelta(
+            hours=FeedDefaults.MAX_ITEM_AGE_HOURS
+        )
+        visible_items: list[FeedItem] = [
+            it for it in items if it.published >= cutoff
+        ][: FeedDefaults.MAX_ITEMS_PER_FEED]
+
         with self._lock:
             if not source.title or source.title == source.url:
                 source.title = feed_title
-            brand_new: list[FeedItem] = source.replace_items(items)
-            # Prune articoli più vecchi di MAX_ITEM_AGE_HOURS (default 48h)
-            cutoff: datetime = datetime.now(timezone.utc) - timedelta(
-                hours=FeedDefaults.MAX_ITEM_AGE_HOURS
-            )
-            source.items = [it for it in source.items if it.published >= cutoff]
-            if len(source.items) > FeedDefaults.MAX_ITEMS_PER_FEED:
-                source.items = source.items[: FeedDefaults.MAX_ITEMS_PER_FEED]
+            brand_new: list[FeedItem] = source.replace_items(visible_items)
 
         self.save()
         self._emit_refresh_completed(source_id, source, brand_new)
