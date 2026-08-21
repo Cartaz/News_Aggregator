@@ -238,7 +238,8 @@ class FeedManager:
         """Rinomina una sorgente feed.
 
         Raises:
-            FeedNotFoundError: Se il titolo è vuoto o la sorgente non esiste.
+            FeedNotFoundError: Se l'ID non esiste.
+            FeedError: Se il nuovo titolo è vuoto.
         """
         from core.feed_write_ops import rename_feed
 
