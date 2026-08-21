@@ -9,9 +9,17 @@ const state = {
   selectedItemId: null,
   search: '',
   showUnreadOnly: false,
-  refresh: { running: false, current: 0, total: 0, backendSeenRunning: false },
+  refresh: {
+    running: false,
+    current: 0,
+    total: 0,
+    backendSeenRunning: false,
+    hideTimer: null,
+  },
   modalReturnFocus: null,
 };
+
+let refreshPollTimer = null;
 
 const $ = (id) => document.getElementById(id);
 const els = {};
@@ -80,6 +88,20 @@ function showToast(title, message = '') {
   window.setTimeout(() => toast.remove(), 3600);
 }
 
+function scheduleRefreshStatePoll(active) {
+  if (refreshPollTimer !== null) {
+    window.clearTimeout(refreshPollTimer);
+    refreshPollTimer = null;
+  }
+  if (!active) return;
+
+  refreshPollTimer = window.setTimeout(async () => {
+    refreshPollTimer = null;
+    const response = await bridgeCall('getSnapshot');
+    if (response?.ok) applySnapshot(response);
+  }, 250);
+}
+
 function applySnapshot(snapshot) {
   if (!snapshot?.ok) {
     showToast('Errore', snapshot?.message || 'Impossibile leggere lo stato');
@@ -92,6 +114,8 @@ function applySnapshot(snapshot) {
 
   const refreshState = snapshot.data.refreshing || { all: false, feeds: [] };
   const backendGlobalRunning = Boolean(refreshState.all);
+  const backendBusy = backendGlobalRunning || (refreshState.feeds || []).length > 0;
+
   if (backendGlobalRunning && state.refresh.running) {
     state.refresh.backendSeenRunning = true;
   } else if (
@@ -99,15 +123,28 @@ function applySnapshot(snapshot) {
     && state.refresh.backendSeenRunning
     && !backendGlobalRunning
   ) {
-    // The backend is authoritative. If the completion WebChannel signal is
-    // delayed or missed, a settled snapshot must still release the UI.
-    state.refresh.running = false;
+    // Python is authoritative for whether refresh-all is still active.
+    // Finish visually at 100%, then hide the bar after a short confirmation.
     state.refresh.current = state.refresh.total;
     state.refresh.backendSeenRunning = false;
     updateRefreshProgress();
+    if (state.refresh.hideTimer !== null) {
+      window.clearTimeout(state.refresh.hideTimer);
+    }
+    state.refresh.hideTimer = window.setTimeout(() => {
+      if (!state.snapshot?.refreshing?.all) {
+        state.refresh.running = false;
+        state.refresh.hideTimer = null;
+        updateRefreshProgress();
+      }
+    }, 320);
   }
 
-  els['refresh-all-btn'].disabled = state.refresh.running || backendGlobalRunning || (refreshState.feeds || []).length > 0;
+  // Never let a stale JavaScript progress flag keep the button disabled.
+  // Only the backend's real busy state controls whether refresh can be started.
+  els['refresh-all-btn'].disabled = backendBusy;
+  scheduleRefreshStatePoll(backendBusy);
+
   document.documentElement.style.setProperty('--font-scale', String(snapshot.data.settings.font_scale_factor || 1));
   document.documentElement.style.setProperty('--sidebar-width', `${Math.max(240, Math.min(480, snapshot.data.settings.source_split_width || 280))}px`);
   renderSources();
@@ -129,10 +166,6 @@ async function loadItems({ syncSnapshot = true } = {}) {
   state.items = response.data || [];
   if (state.selectedItemId && !state.items.some((item) => item.id === state.selectedItemId)) state.selectedItemId = null;
 
-  // getItems e getSnapshot sono due chiamate separate. Durante un refresh
-  // un feed può avere già nuovi articoli mentre la sidebar mostra ancora
-  // lo snapshot precedente. Riallineiamo i badge subito dopo aver letto
-  // gli articoli, così contatori e lista rappresentano lo stesso stato.
   if (syncSnapshot) {
     const snapshot = await bridgeCall('getSnapshot');
     if (snapshot?.ok) applySnapshot(snapshot);

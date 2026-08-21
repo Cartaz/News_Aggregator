@@ -41,9 +41,6 @@ async function selectArticle(itemId) {
   const item = state.items.find((candidate) => candidate.id === itemId);
   if (!item) return;
 
-  // Keep the article currently being read unread. The previous article is
-  // marked read only when the user moves to another item. This prevents the
-  // active article from disappearing immediately with the unread-only filter.
   state.selectedItemId = itemId;
   renderArticles();
 
@@ -86,16 +83,39 @@ function clearDetail() {
 }
 
 async function refreshAll() {
-  const response = await bridgeCall('refreshAll');
-  if (!response?.ok) { showToast('Aggiornamento non avviato', response?.message || ''); return; }
   const enabledFeeds = state.snapshot?.feeds?.filter((feed) => feed.enabled) || [];
+
+  if (state.refresh.hideTimer !== null) {
+    window.clearTimeout(state.refresh.hideTimer);
+  }
+
+  // Arm the UI before calling Python. A very fast first feed may finish before
+  // the QWebChannel method callback returns; starting locally first prevents
+  // that first real progress event from being discarded.
   state.refresh = {
     running: true,
     current: 0,
     total: enabledFeeds.length,
-    backendSeenRunning: true,
+    backendSeenRunning: false,
+    hideTimer: null,
   };
+  els['refresh-fill'].dataset.total = '';
+  els['refresh-fill'].replaceChildren();
+  els['refresh-all-btn'].disabled = true;
   updateRefreshProgress();
+
+  const response = await bridgeCall('refreshAll');
+  if (!response?.ok) {
+    state.refresh.running = false;
+    updateRefreshProgress();
+    await loadSnapshot();
+    showToast('Aggiornamento non avviato', response?.message || '');
+    return;
+  }
+
+  // Confirm the real backend state immediately; subsequent snapshots are
+  // polled while Python is busy, so the button cannot remain stuck.
+  await loadSnapshot();
 }
 
 async function refreshCurrentFeed() {
@@ -110,9 +130,6 @@ function ensureRefreshSegments(total) {
   const track = els['refresh-track'];
   const fill = els['refresh-fill'];
 
-  // Keep the empty progress bar visible as a real neumorphic control before
-  // the first feed completes. Previously pending segments used exactly the
-  // same surface as the track, making the whole bar effectively invisible.
   track.style.background = 'var(--surface)';
   track.style.boxShadow = 'var(--shadow-inset-small), 0 0 0 1px rgba(255,102,0,.22), 0 0 8px rgba(255,102,0,.10)';
 
@@ -143,8 +160,9 @@ function ensureRefreshSegments(total) {
 }
 
 function updateRefreshProgress() {
-  els['refresh-track'].hidden = !state.refresh.running;
-  els['refresh-all-btn'].disabled = state.refresh.running;
+  const track = els['refresh-track'];
+  track.hidden = !state.refresh.running;
+  if (!state.refresh.running) return;
 
   const total = Math.max(0, Number(state.refresh.total) || 0);
   const completed = Math.max(0, Math.min(total, Number(state.refresh.current) || 0));
@@ -159,11 +177,11 @@ function updateRefreshProgress() {
   });
 
   const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
-  els['refresh-track'].setAttribute('role', 'progressbar');
-  els['refresh-track'].setAttribute('aria-valuemin', '0');
-  els['refresh-track'].setAttribute('aria-valuemax', String(total));
-  els['refresh-track'].setAttribute('aria-valuenow', String(completed));
-  els['refresh-track'].setAttribute(
+  track.setAttribute('role', 'progressbar');
+  track.setAttribute('aria-valuemin', '0');
+  track.setAttribute('aria-valuemax', String(total));
+  track.setAttribute('aria-valuenow', String(completed));
+  track.setAttribute(
     'aria-valuetext',
     total > 0 ? `${completed} di ${total} feed aggiornati (${percent}%)` : 'Nessun feed da aggiornare'
   );
