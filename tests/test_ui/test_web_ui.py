@@ -54,6 +54,20 @@ def test_qwebchannel_is_local_and_no_frontend_framework() -> None:
         assert framework not in html
 
 
+def test_refresh_ui_recovers_from_missed_finish_signal() -> None:
+    state_js = (WEB_ROOT / "state.js").read_text(encoding="utf-8")
+    articles_js = (WEB_ROOT / "articles.js").read_text(encoding="utf-8")
+    app_js = (WEB_ROOT / "app.js").read_text(encoding="utf-8")
+
+    assert "backendSeenRunning" in state_js
+    assert "state.refresh.backendSeenRunning" in state_js
+    assert "&& !backendGlobalRunning" in state_js
+    assert "updateRefreshProgress();" in state_js
+    assert "backendSeenRunning: true" in articles_js
+    assert "state.refresh.backendSeenRunning = true;" in app_js
+    assert "state.refresh.backendSeenRunning = false;" in app_js
+
+
 def test_bridge_normalizes_user_urls() -> None:
     pytest.importorskip("PySide6")
     from ui.bridge import WebBridge
