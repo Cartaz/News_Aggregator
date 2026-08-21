@@ -88,7 +88,12 @@ function clearDetail() {
 async function refreshAll() {
   const response = await bridgeCall('refreshAll');
   if (!response?.ok) { showToast('Aggiornamento non avviato', response?.message || ''); return; }
-  state.refresh = { running: true, current: 0, total: state.snapshot?.feeds?.length || 0 };
+  state.refresh = {
+    running: true,
+    current: 0,
+    total: state.snapshot?.feeds?.length || 0,
+    backendSeenRunning: true,
+  };
   updateRefreshProgress();
 }
 

@@ -97,6 +97,7 @@ function bindBackendSignals() {
     try {
       const progress = JSON.parse(raw);
       state.refresh.running = true;
+      state.refresh.backendSeenRunning = true;
       state.refresh.current = progress.current || 0;
       state.refresh.total = progress.total || 0;
       updateRefreshProgress();
@@ -107,6 +108,7 @@ function bindBackendSignals() {
     try { result = JSON.parse(raw); } catch { /* ignore */ }
     if (result?.scope === 'all') {
       state.refresh.running = false;
+      state.refresh.backendSeenRunning = false;
       state.refresh.current = state.refresh.total;
       updateRefreshProgress();
       const message = result.failed ? `${result.success || 0} riusciti, ${result.failed} falliti` : `${result.success || 0} feed aggiornati`;
