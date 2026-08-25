@@ -49,7 +49,7 @@ def wait_js(qtbot, view: QWebEngineView, script: str, expected: Any = True, time
 
 
 @pytest.fixture
-def backend(tmp_paths, reset_event_bus):  # type: ignore[no-untyped-def]
+def backend(tmp_paths):  # type: ignore[no-untyped-def]
     AppController._instance = None
     SettingsManager._instance = None
     manager = FeedManager(Paths.FEEDS_FILE)

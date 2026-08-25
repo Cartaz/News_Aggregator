@@ -13,7 +13,6 @@ from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot
 from config.constants import AppMeta
 from core.app_controller import AppController
 from core.models import FeedItem, FeedSource
-from ui.native_actions import open_external_url
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +26,7 @@ class WebBridge(QObject):
     unreadCountChanged = Signal(int)
     newItemsDetected = Signal(int, str)
     uiSyncRequested = Signal()
+    requestOpenExternal = Signal(str)
     requestQuit = Signal()
     requestHide = Signal()
 
@@ -274,8 +274,9 @@ class WebBridge(QObject):
     @Slot(str, result=str)
     def openExternal(self, raw_url: str) -> str:
         try:
-            ok, message = open_external_url(raw_url)
-            return self._ok(message=message) if ok else self._error(message)
+            normalized = self._normalize_url(raw_url)
+            self.requestOpenExternal.emit(normalized)
+            return self._ok(message="Apertura link richiesta")
         except Exception as exc:
             return self._error(exc)
 

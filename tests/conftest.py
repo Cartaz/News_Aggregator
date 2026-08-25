@@ -27,7 +27,6 @@ def tmp_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
-    # Ricarica Paths per riflettere le nuove env vars
     from config import constants
 
     monkeypatch.setattr(
@@ -76,16 +75,6 @@ def tmp_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         tmp_path / "state" / "news-aggregator" / "app.log",
     )
     return tmp_path
-
-
-@pytest.fixture
-def reset_event_bus() -> None:
-    """Resetta il singleton EventBus prima e dopo ogni test."""
-    from core.event_bus import EventBus
-
-    EventBus.reset()
-    yield
-    EventBus.reset()
 
 
 @pytest.fixture
