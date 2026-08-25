@@ -68,8 +68,8 @@ class SettingsManager:
 
     @property
     def settings(self) -> Settings:
-        """Return the canonical settings object for read access."""
-        return self._settings
+        """Return a detached read snapshot; writes go through ``update``."""
+        return self.snapshot()
 
     def snapshot(self) -> Settings:
         """Return a detached copy suitable for external consumers."""
@@ -84,7 +84,7 @@ class SettingsManager:
         if not self._path.exists():
             logger.info("File impostazioni non trovato, uso default: %s", self._path)
             self._settings = Settings()
-            return self._settings
+            return self.snapshot()
         try:
             raw: dict[str, Any] = json.loads(self._path.read_text(encoding="utf-8"))
             candidate = Settings(**raw)
@@ -96,7 +96,7 @@ class SettingsManager:
         except ConfigValidationError as exc:
             logger.warning("Impostazioni non valide, reset ai default: %s", exc)
             self._settings = Settings()
-        return self._settings
+        return self.snapshot()
 
     def save(self) -> None:
         """Persist the canonical settings atomically, then notify listeners."""
