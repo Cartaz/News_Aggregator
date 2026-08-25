@@ -73,13 +73,20 @@ class FeedManager:
             logger.info("File feed non trovato, raccolta vuota: %s", self._path)
             return
         try:
-            raw: dict[str, Any] = json.loads(self._path.read_text(encoding="utf-8"))
+            raw: Any = json.loads(self._path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             logger.warning("File feed corrotto o non leggibile, raccolta invariata: %s", exc)
             return
+        if not isinstance(raw, dict):
+            logger.warning("File feed con struttura non valida: root non oggetto")
+            return
+        raw_sources = raw.get("sources", [])
+        if not isinstance(raw_sources, list):
+            logger.warning("File feed con struttura non valida: sources non lista")
+            return
         with self._lock:
             loaded: dict[str, FeedSource] = {}
-            for src_data in raw.get("sources", []):
+            for src_data in raw_sources:
                 try:
                     source = deserialize_source(src_data)
                     loaded[source.id] = source
@@ -349,7 +356,9 @@ class FeedManager:
             if not source:
                 raise FeedNotFoundError(source_id)
             previous_items = list(source.items)
-            source.mark_read(item_id)
+            changed = source.mark_read(item_id)
+            if not changed:
+                raise FeedError(f"Articolo non trovato: {item_id}")
         try:
             self.save()
         except Exception:
