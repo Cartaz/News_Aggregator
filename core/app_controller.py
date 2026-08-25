@@ -1,8 +1,8 @@
 """Application controller and canonical operational state owner.
 
 The controller coordinates feed operations, refresh lifecycle and UI-facing
-queries. Presentation layers consume serializable snapshots and do not own
-persistent or operational state.
+queries. Presentation layers consume snapshots and subscribe explicitly to
+controller events; no global event bus participates in production flow.
 """
 
 from __future__ import annotations
@@ -10,18 +10,20 @@ from __future__ import annotations
 import logging
 import threading
 from collections.abc import Callable
+from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from config.constants import AppMeta, FeedDefaults
 from config.settings import Settings, SettingsManager
-from core.event_bus import EventBus
 from core.exceptions import FeedError
 from core.feed_manager import FeedManager
 from core.models import FeedItem, FeedSource
 from core.refresh_state import RefreshState
 
 logger = logging.getLogger(__name__)
+
+AppEventListener = Callable[[str, dict[str, Any]], None]
 
 
 class AppController:
@@ -43,23 +45,47 @@ class AppController:
             return
         self._feed_manager = feed_manager or FeedManager()
         self._settings_manager = settings_manager or SettingsManager()
-        self._bus = EventBus()
         self._refresh_thread: threading.Thread | None = None
         self._refresh_lock = threading.RLock()
         self._refresh_state = RefreshState()
         self._auto_timer: threading.Timer | None = None
+        self._event_lock = threading.RLock()
+        self._event_listeners: list[AppEventListener] = []
         self._shutting_down = False
         self._initialized = True
+        self._feed_manager.set_event_sink(self._on_feed_event)
         self._settings_manager.register_change_callback(self._on_settings_changed)
-        self._bus.subscribe("feed_refresh_started", self._on_feed_refresh_started)
-        self._bus.subscribe("feed_refresh_completed", self._on_feed_refresh_finished)
-        self._bus.subscribe("feed_refresh_failed", self._on_feed_refresh_finished)
         logger.info("%s controller inizializzato", AppMeta.NAME)
 
-    def _on_settings_changed(self, settings: Settings) -> None:
-        from dataclasses import asdict
+    def register_event_listener(self, listener: AppEventListener) -> None:
+        """Register one explicit observer for controller/domain events."""
+        with self._event_lock:
+            if listener not in self._event_listeners:
+                self._event_listeners.append(listener)
 
-        self._bus.emit(
+    def unregister_event_listener(self, listener: AppEventListener) -> None:
+        with self._event_lock:
+            if listener in self._event_listeners:
+                self._event_listeners.remove(listener)
+
+    def _emit_event(self, event_name: str, payload: dict[str, Any]) -> None:
+        with self._event_lock:
+            listeners = list(self._event_listeners)
+        for listener in listeners:
+            try:
+                listener(event_name, payload)
+            except Exception:
+                logger.exception("Listener applicativo fallito per %s", event_name)
+
+    def _on_feed_event(self, event_name: str, payload: dict[str, Any]) -> None:
+        if event_name == "feed_refresh_started":
+            self._on_feed_refresh_started(payload)
+        elif event_name in {"feed_refresh_completed", "feed_refresh_failed"}:
+            self._on_feed_refresh_finished(payload)
+        self._emit_event(event_name, payload)
+
+    def _on_settings_changed(self, settings: Settings) -> None:
+        self._emit_event(
             "config_changed",
             {"source": AppMeta.NAME, "settings": asdict(settings)},
         )
@@ -77,7 +103,6 @@ class AppController:
         return self._settings_manager
 
     def get_refresh_state(self) -> dict[str, Any]:
-        """Return a serializable snapshot of refresh state."""
         with self._refresh_lock:
             return self._refresh_state.snapshot()
 
@@ -86,7 +111,7 @@ class AppController:
             return self._refresh_state.active
 
     def _emit_refresh_state(self) -> None:
-        self._bus.emit("refresh_state_changed", self.get_refresh_state())
+        self._emit_event("refresh_state_changed", self.get_refresh_state())
 
     def _begin_refresh(self, scope: str, total: int, source_id: str = "") -> bool:
         with self._refresh_lock:
@@ -201,7 +226,6 @@ class AppController:
         source_id: str,
         on_done: Callable[[bool, str], None] | None = None,
     ) -> bool:
-        """Start one feed refresh; return False when refresh cannot start."""
         if not self._begin_refresh("feed", 1, source_id):
             logger.warning("Refresh singolo non avviato: occupato o shutdown in corso")
             return False
@@ -221,7 +245,6 @@ class AppController:
         on_done: Callable[[dict[str, Any]], None] | None = None,
         progress_cb: Callable[[str, int, int], None] | None = None,
     ) -> bool:
-        """Start a global refresh; return False when refresh cannot start."""
         total = sum(1 for source in self._feed_manager.get_all() if source.enabled)
         if not self._begin_refresh("all", total):
             logger.warning("Refresh globale non avviato: occupato o shutdown in corso")
@@ -339,7 +362,10 @@ class AppController:
                     "Worker refresh ancora attivo dopo %.1f secondi di shutdown",
                     wait_timeout,
                 )
+        self._feed_manager.set_event_sink(None)
+        with self._event_lock:
+            self._event_listeners.clear()
         logger.info("Controller shutdown completato")
 
 
-__all__ = ["AppController"]
+__all__ = ["AppController", "AppEventListener"]
