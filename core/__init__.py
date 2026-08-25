@@ -1,13 +1,8 @@
-"""Pacchetto core: logica di business framework-agnostic.
-
-Esporta l'interfaccia pubblica del livello core. Questo livello NON
-importa mai da ``ui/`` né da Qt (vincolo §5.1.4b).
-"""
+"""Framework-agnostic application core public surface."""
 
 from __future__ import annotations
 
 from core.app_controller import AppController
-from core.event_bus import EventBus, EventHandler
 from core.exceptions import (
     AppError,
     ConfigError,
@@ -34,8 +29,6 @@ from core.models import FeedCategory, FeedItem, FeedSource
 
 __all__ = [
     "AppController",
-    "EventBus",
-    "EventHandler",
     "AppError",
     "ConfigError",
     "ConfigValidationError",
