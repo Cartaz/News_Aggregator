@@ -69,10 +69,12 @@ class WebMainWindow(QMainWindow):
 
     def _persist_geometry(self) -> None:
         try:
-            settings = self._controller.settings_manager.settings
-            settings.window_width = self.width()
-            settings.window_height = self.height()
-            self._controller.settings_manager.save()
+            self._controller.settings_manager.update(
+                {
+                    "window_width": self.width(),
+                    "window_height": self.height(),
+                }
+            )
         except Exception:
             logger.warning("Impossibile salvare la geometria finestra", exc_info=True)
 
