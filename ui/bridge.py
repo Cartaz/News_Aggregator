@@ -38,8 +38,9 @@ class WebBridge(QObject):
     def __init__(
         self,
         controller: AppController,
-        open_external: OpenExternalPort | None = None,
         parent: QObject | None = None,
+        *,
+        open_external: OpenExternalPort | None = None,
     ) -> None:
         super().__init__(parent)
         self._controller = controller
