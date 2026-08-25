@@ -71,7 +71,7 @@ def test_refresh_ui_uses_controller_snapshot_as_single_source() -> None:
 
     assert "self._refresh_state = RefreshState()" in controller_py
     assert "def get_refresh_state(" in controller_py
-    assert 'self._bus.emit("refresh_state_changed"' in controller_py
+    assert 'self._emit_event("refresh_state_changed"' in controller_py
 
     assert "const backendBusy = Boolean(refreshState.active);" in state_js
     assert "updateRefreshProgress(refreshState);" in state_js
