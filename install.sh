@@ -36,6 +36,15 @@ if [[ -d "${VENV_DIR}" && ! -x "${VENV_PYTHON}" ]]; then
     rm -rf "${VENV_DIR}"
 fi
 
+if [[ -x "${VENV_PYTHON}" ]] && ! "${VENV_PYTHON}" - <<'PY'
+import sys
+raise SystemExit(0 if sys.version_info >= (3, 12) else 1)
+PY
+then
+    info "Ambiente virtuale creato con Python troppo vecchio: ricreo .venv"
+    rm -rf "${VENV_DIR}"
+fi
+
 if [[ ! -d "${VENV_DIR}" ]]; then
     info "Creo l'ambiente virtuale .venv"
     "${PYTHON_BIN}" -m venv "${VENV_DIR}" \

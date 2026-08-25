@@ -88,6 +88,13 @@ def article(source_id: str, title: str, minutes_ago: int) -> FeedItem:
     )
 
 
+def seed_items(manager: FeedManager, source_id: str, items: list[FeedItem]) -> None:
+    """Test-only setup that preserves the production defensive-read contract."""
+    with manager._lock:
+        manager._sources[source_id].items = list(items)
+    manager.save()
+
+
 def test_webengine_boots_with_real_webchannel(qtbot, backend) -> None:  # type: ignore[no-untyped-def]
     manager, controller = backend
     manager.add("https://example.com/one.xml", title="One")
@@ -132,9 +139,7 @@ def test_background_refresh_reloads_current_scope_without_reclick(qtbot, backend
     manager.set_category(source.id, "Tech")
 
     def background_refresh(source_id: str) -> int:
-        refreshed = manager.get(source_id)
-        refreshed.items = [article(source_id, "Background News", 1)]
-        manager.save()
+        seed_items(manager, source_id, [article(source_id, "Background News", 1)])
         return 1
 
     monkeypatch.setattr(manager, "refresh", background_refresh)
@@ -169,12 +174,10 @@ def test_resume_sync_recovers_after_hidden_refresh_signals_are_missed(qtbot, bac
     wait_js(qtbot, view, "document.querySelectorAll('.article-row').length", 0)
 
     view.hide()
-    refreshed = manager.get(source.id)
-    refreshed.items = [article(source.id, "Hidden News", 1)]
-    manager.save()
+    seed_items(manager, source.id, [article(source.id, "Hidden News", 1)])
 
-    # No EventBus/WebChannel refresh event is emitted: this simulates a hidden
-    # WebEngine page missing the background-refresh state transition entirely.
+    # No controller/WebChannel event is emitted: this simulates a hidden
+    # WebEngine page missing the background state transition entirely.
     view.show()
     view._bridge.uiSyncRequested.emit()  # type: ignore[attr-defined]
 
@@ -187,8 +190,11 @@ def test_resume_sync_recovers_after_hidden_refresh_signals_are_missed(qtbot, bac
 def test_unread_filter_and_arrow_navigation(qtbot, backend) -> None:  # type: ignore[no-untyped-def]
     manager, controller = backend
     source = manager.add("https://example.com/feed.xml", title="Example")
-    source.items = [article(source.id, "Newest", 1), article(source.id, "Older", 2)]
-    manager.save()
+    seed_items(
+        manager,
+        source.id,
+        [article(source.id, "Newest", 1), article(source.id, "Older", 2)],
+    )
     view = open_app(qtbot, controller)
     wait_js(qtbot, view, "document.querySelectorAll('.article-row').length", 2)
     js(qtbot, view, "const t=document.getElementById('unread-toggle');t.checked=true;t.dispatchEvent(new Event('change',{bubbles:true}));true")

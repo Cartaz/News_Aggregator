@@ -1,4 +1,4 @@
-"""Gestore centrale dei feed: aggiunta, rimozione, refresh e persistenza."""
+"""Central feed catalog, refresh orchestration and persistence."""
 
 from __future__ import annotations
 
@@ -7,12 +7,12 @@ import logging
 import threading
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from config.constants import FeedDefaults, Paths
-from core.event_bus import EventBus
 from core.exceptions import (
     FeedDuplicateError,
     FeedError,
@@ -26,17 +26,47 @@ from core.models import FeedItem, FeedSource
 
 logger = logging.getLogger(__name__)
 
+FeedEventSink = Callable[[str, dict[str, Any]], None]
+
 
 class FeedManager:
-    """Catalogo centrale delle sorgenti feed, thread-safe tramite RLock."""
+    """Own feed storage, locking, persistence and feed-level mutations."""
 
-    def __init__(self, storage_path: Path | None = None) -> None:
-        self._path: Path = storage_path or Paths.FEEDS_FILE
+    def __init__(
+        self,
+        storage_path: Path | None = None,
+        event_sink: FeedEventSink | None = None,
+    ) -> None:
+        self._path = storage_path or Paths.FEEDS_FILE
         self._sources: dict[str, FeedSource] = {}
         self._lock = threading.RLock()
-        self._bus = EventBus()
+        self._event_sink = event_sink
         Paths.ensure_user_dirs()
         self.load()
+
+    @staticmethod
+    def _snapshot_source(source: FeedSource) -> FeedSource:
+        """Return a detached source snapshot without exposing canonical lists."""
+        return replace(source, items=list(source.items))
+
+    @staticmethod
+    def _age_cutoff() -> datetime:
+        return datetime.now(timezone.utc) - timedelta(
+            hours=FeedDefaults.MAX_ITEM_AGE_HOURS
+        )
+
+    def set_event_sink(self, event_sink: FeedEventSink | None) -> None:
+        """Set the single explicit sink for domain events."""
+        self._event_sink = event_sink
+
+    def _emit_event(self, event_name: str, payload: dict[str, Any]) -> None:
+        sink = self._event_sink
+        if sink is None:
+            return
+        try:
+            sink(event_name, payload)
+        except Exception:
+            logger.exception("Errore nel consumer evento feed %s", event_name)
 
     def load(self) -> None:
         if not self._path.exists():
@@ -45,61 +75,76 @@ class FeedManager:
         try:
             raw: dict[str, Any] = json.loads(self._path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
-            logger.warning("File feed corrotto, raccolta vuota: %s", exc)
+            logger.warning("File feed corrotto o non leggibile, raccolta invariata: %s", exc)
             return
         with self._lock:
-            self._sources.clear()
+            loaded: dict[str, FeedSource] = {}
             for src_data in raw.get("sources", []):
                 try:
                     source = deserialize_source(src_data)
-                    self._sources[source.id] = source
+                    loaded[source.id] = source
                 except (KeyError, TypeError, ValueError) as exc:
                     logger.warning("Feed ignorato (dati non validi): %s", exc)
+            self._sources = loaded
 
     def save(self) -> None:
-        """Persiste lo snapshot corrente serializzando anche la scrittura.
-
-        Con refresh concorrenti più worker possono terminare quasi insieme.
-        Il lock resta quindi acquisito fino alla fine di ``write_text`` per
-        impedire scritture JSON sovrapposte sullo stesso file.
-        """
+        """Atomically persist one locked snapshot or raise ``FeedError``."""
+        Paths.ensure_user_dirs()
+        temporary = self._path.with_name(f".{self._path.name}.tmp")
         try:
             with self._lock:
                 data = {
-                    "sources": [serialize_source(s) for s in self._sources.values()]
+                    "sources": [serialize_source(source) for source in self._sources.values()]
                 }
-                self._path.write_text(
-                    json.dumps(data, indent=2, default=str), encoding="utf-8"
+                temporary.write_text(
+                    json.dumps(data, indent=2, default=str),
+                    encoding="utf-8",
                 )
+                temporary.replace(self._path)
         except OSError as exc:
-            logger.error("Impossibile salvare i feed: %s", exc)
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                logger.debug("Impossibile rimuovere feed temporanei", exc_info=True)
+            raise FeedError(f"Impossibile salvare i feed: {exc}") from exc
 
     def add(self, url: str, title: str = "") -> FeedSource:
         normalized = url.strip()
         if not normalized:
             raise FeedError("URL vuoto non valido")
         with self._lock:
-            for src in self._sources.values():
-                if src.url == normalized:
+            for existing in self._sources.values():
+                if existing.url == normalized:
                     raise FeedDuplicateError(normalized)
             source = FeedSource(url=normalized, title=title or normalized)
             self._sources[source.id] = source
-        self.save()
-        self._bus.emit(
+        try:
+            self.save()
+        except Exception:
+            with self._lock:
+                self._sources.pop(source.id, None)
+            raise
+        self._emit_event(
             "feed_added",
             {"source_id": source.id, "url": source.url, "title": source.title},
         )
         logger.info("Feed aggiunto: %s", normalized)
-        return source
+        return self._snapshot_source(source)
 
     def remove(self, source_id: str) -> None:
         with self._lock:
             if source_id not in self._sources:
                 raise FeedNotFoundError(source_id)
             removed = self._sources.pop(source_id)
-        self.save()
-        self._bus.emit(
-            "feed_removed", {"source_id": source_id, "url": removed.url}
+        try:
+            self.save()
+        except Exception:
+            with self._lock:
+                self._sources[source_id] = removed
+            raise
+        self._emit_event(
+            "feed_removed",
+            {"source_id": source_id, "url": removed.url},
         )
         logger.info("Feed rimosso: %s", removed.url)
 
@@ -107,15 +152,14 @@ class FeedManager:
         with self._lock:
             if source_id not in self._sources:
                 raise FeedNotFoundError(source_id)
-            return self._sources[source_id]
+            return self._snapshot_source(self._sources[source_id])
 
     def get_all(self) -> list[FeedSource]:
         with self._lock:
-            return list(self._sources.values())
+            return [self._snapshot_source(source) for source in self._sources.values()]
 
     @staticmethod
     def _normalize_fetch_result(raw: Any, requested_url: str) -> FeedFetchResult:
-        """Accetta anche i vecchi tuple mock usati dai test/integrazioni."""
         if isinstance(raw, FeedFetchResult):
             return raw
         title, items, resolved_url = raw
@@ -131,7 +175,6 @@ class FeedManager:
     def _fetch_effective_url(
         self, source: FeedSource, url: str
     ) -> FeedFetchResult:
-        """Fetch dell'URL effettivo; se i validator falliscono, retry pieno."""
         kwargs: dict[str, str] = {}
         if source.http_etag:
             kwargs["etag"] = source.http_etag
@@ -153,7 +196,6 @@ class FeedManager:
             return self._normalize_fetch_result(raw, url)
 
     def _fetch_source(self, source: FeedSource) -> FeedFetchResult:
-        """Usa prima il feed risolto cached, poi fallback all'URL originale."""
         cached_url = source.resolved_feed_url.strip()
         if cached_url:
             try:
@@ -174,17 +216,19 @@ class FeedManager:
                 self.save()
         return self._fetch_effective_url(source, source.url)
 
-    def _store_fetch_metadata(
-        self, source: FeedSource, result: FeedFetchResult
-    ) -> None:
-        new_cached = (
+    @staticmethod
+    def _store_fetch_metadata(source: FeedSource, result: FeedFetchResult) -> None:
+        source.resolved_feed_url = (
             result.resolved_url
             if result.resolved_url and result.resolved_url != source.url
             else ""
         )
-        source.resolved_feed_url = new_cached
         source.http_etag = result.etag
         source.http_last_modified = result.last_modified
+
+    def _restore_source(self, source_id: str, snapshot: FeedSource) -> None:
+        with self._lock:
+            self._sources[source_id] = snapshot
 
     def refresh(self, source_id: str) -> int:
         with self._lock:
@@ -192,38 +236,42 @@ class FeedManager:
                 raise FeedNotFoundError(source_id)
             source = self._sources[source_id]
 
-        self._bus.emit(
-            "feed_refresh_started", {"source_id": source_id, "url": source.url}
+        self._emit_event(
+            "feed_refresh_started",
+            {"source_id": source_id, "url": source.url},
         )
         try:
             result = self._fetch_source(source)
         except (FeedFetchError, FeedParseError) as exc:
             with self._lock:
-                src = self._sources.get(source_id)
-                if src:
-                    src.last_error = str(exc)
-            self._bus.emit(
+                current = self._sources.get(source_id)
+                if current:
+                    current.last_error = str(exc)
+            self._emit_event(
                 "feed_refresh_failed",
                 {"source_id": source_id, "error": str(exc)},
             )
             logger.error("Refresh fallito per %s: %s", source.url, exc)
             raise
 
+        previous = self._snapshot_source(source)
         if result.not_modified:
             with self._lock:
                 self._store_fetch_metadata(source, result)
                 source.last_updated = datetime.now(timezone.utc)
                 source.last_error = ""
-            self.save()
+            try:
+                self.save()
+            except Exception:
+                self._restore_source(source_id, previous)
+                raise
             self._emit_refresh_completed(source_id, source, [], not_modified=True)
             logger.info("Feed %s non modificato (HTTP 304)", source.url)
             return 0
 
-        cutoff = datetime.now(timezone.utc) - timedelta(
-            hours=FeedDefaults.MAX_ITEM_AGE_HOURS
-        )
+        cutoff = self._age_cutoff()
         visible_items = [
-            it for it in result.items if it.published >= cutoff
+            item for item in result.items if item.published >= cutoff
         ][: FeedDefaults.MAX_ITEMS_PER_FEED]
 
         with self._lock:
@@ -232,7 +280,11 @@ class FeedManager:
             self._store_fetch_metadata(source, result)
             brand_new = source.replace_items(visible_items)
 
-        self.save()
+        try:
+            self.save()
+        except Exception:
+            self._restore_source(source_id, previous)
+            raise
         self._emit_refresh_completed(source_id, source, brand_new)
         logger.info(
             "Feed %s aggiornato: %d nuovi articoli", source.url, len(brand_new)
@@ -243,14 +295,12 @@ class FeedManager:
         self,
         progress_cb: Callable[[str, int, int], None] | None = None,
     ) -> dict[str, Any]:
-        """Aggiorna i feed abilitati con un pool concorrente limitato.
-
-        Il callback di progresso viene invocato dal thread coordinatore dopo
-        ogni future completata, quindi ``completed`` cresce sempre da 1 a N
-        anche se l'ordine dei feed terminati è diverso da quello iniziale.
-        """
         with self._lock:
-            sources = [s for s in self._sources.values() if s.enabled]
+            sources = [
+                self._snapshot_source(source)
+                for source in self._sources.values()
+                if source.enabled
+            ]
         total = len(sources)
         if total == 0:
             return {"success": 0, "failed": 0, "errors": []}
@@ -288,12 +338,8 @@ class FeedManager:
                     if progress_cb:
                         try:
                             progress_cb(source.id, completed, total)
-                        except Exception as exc:
-                            logger.error(
-                                "Callback progresso refresh fallita: %s",
-                                exc,
-                                exc_info=True,
-                            )
+                        except Exception:
+                            logger.exception("Callback progresso refresh fallita")
 
         return {"success": success, "failed": len(errors), "errors": errors}
 
@@ -302,36 +348,107 @@ class FeedManager:
             source = self._sources.get(source_id)
             if not source:
                 raise FeedNotFoundError(source_id)
+            previous_items = list(source.items)
             source.mark_read(item_id)
-        self.save()
-        self._bus.emit(
+        try:
+            self.save()
+        except Exception:
+            with self._lock:
+                source.items = previous_items
+            raise
+        self._emit_event(
             "item_read_changed",
             {"source_id": source_id, "item_id": item_id, "read": True},
         )
 
     def rename_feed(self, source_id: str, new_title: str) -> FeedSource:
-        from core.feed_write_ops import rename_feed
-        return rename_feed(self, source_id, new_title)
+        cleaned = (new_title or "").strip()
+        if not cleaned:
+            raise FeedError("Il nuovo titolo non può essere vuoto")
+        with self._lock:
+            source = self._sources.get(source_id)
+            if not source:
+                raise FeedNotFoundError(source_id)
+            previous = source.title
+            source.title = cleaned
+        try:
+            self.save()
+        except Exception:
+            with self._lock:
+                source.title = previous
+            raise
+        self._emit_event(
+            "feed_renamed",
+            {"source_id": source_id, "new_title": cleaned},
+        )
+        logger.info("Feed %s rinominato in %r", source_id, cleaned)
+        return self._snapshot_source(source)
 
     def set_category(self, source_id: str, category: str) -> FeedSource:
-        from core.feed_write_ops import set_category
-        return set_category(self, source_id, category)
+        cleaned = (category or "").strip()
+        with self._lock:
+            source = self._sources.get(source_id)
+            if not source:
+                raise FeedNotFoundError(source_id)
+            previous = source.category
+            source.category = cleaned
+        try:
+            self.save()
+        except Exception:
+            with self._lock:
+                source.category = previous
+            raise
+        self._emit_event(
+            "feed_category_changed",
+            {"source_id": source_id, "category": cleaned},
+        )
+        logger.info(
+            "Feed %s assegnato a categoria %r",
+            source_id,
+            cleaned or "(nessuna)",
+        )
+        return self._snapshot_source(source)
 
     def get_categories(self) -> list[str]:
-        from core.category_ops import list_categories
-        return list_categories(self)
+        with self._lock:
+            return sorted(
+                {source.category for source in self._sources.values() if source.category}
+            )
 
     def get_feeds_by_category(self, category: str) -> list[FeedSource]:
-        from core.category_ops import get_feeds_by_category
-        return get_feeds_by_category(self, category)
+        with self._lock:
+            return [
+                self._snapshot_source(source)
+                for source in self._sources.values()
+                if source.category == category
+            ]
 
-    def get_items_by_category(self, category: str, limit: int = 200) -> list[FeedItem]:
-        from core.category_ops import get_items_by_category
-        return get_items_by_category(self, category, limit)
+    def get_items_by_category(
+        self, category: str, limit: int = 200
+    ) -> list[FeedItem]:
+        cutoff = self._age_cutoff()
+        with self._lock:
+            items = [
+                item
+                for source in self._sources.values()
+                if source.category == category
+                for item in source.items
+                if item.published >= cutoff
+            ]
+        items.sort(key=lambda item: item.published, reverse=True)
+        return items[:limit]
 
     def get_all_items(self, limit: int = 200) -> list[FeedItem]:
-        from core.category_ops import get_all_items
-        return get_all_items(self, limit)
+        cutoff = self._age_cutoff()
+        with self._lock:
+            items = [
+                item
+                for source in self._sources.values()
+                for item in source.items
+                if item.published >= cutoff
+            ]
+        items.sort(key=lambda item: item.published, reverse=True)
+        return items[:limit]
 
     def _emit_refresh_completed(
         self,
@@ -341,7 +458,7 @@ class FeedManager:
         *,
         not_modified: bool = False,
     ) -> None:
-        self._bus.emit(
+        self._emit_event(
             "feed_refresh_completed",
             {
                 "source_id": source_id,
@@ -353,16 +470,16 @@ class FeedManager:
             },
         )
         if brand_new:
-            self._bus.emit(
+            self._emit_event(
                 "new_items_available",
                 {
                     "source_id": source_id,
                     "items": [
-                        {"id": it.id, "title": it.title, "link": it.link}
-                        for it in brand_new
+                        {"id": item.id, "title": item.title, "link": item.link}
+                        for item in brand_new
                     ],
                 },
             )
 
 
-__all__ = ["FeedManager"]
+__all__ = ["FeedManager", "FeedEventSink"]

@@ -6,7 +6,6 @@ import threading
 
 from config.settings import Settings
 from core.app_controller import AppController
-from core.event_bus import EventBus
 from core.models import FeedSource
 from core.refresh_state import RefreshState
 
@@ -27,6 +26,10 @@ class _BlockingFeedManager:
         ]
         self.started = threading.Event()
         self.release = threading.Event()
+        self.event_sink = None
+
+    def set_event_sink(self, event_sink) -> None:  # type: ignore[no-untyped-def]
+        self.event_sink = event_sink
 
     def get_all(self):  # type: ignore[no-untyped-def]
         return list(self.sources)
@@ -47,7 +50,6 @@ class _BlockingFeedManager:
 
 
 def _controller(manager: _BlockingFeedManager) -> AppController:
-    EventBus.reset()
     AppController._instance = None
     return AppController(manager, _SettingsManager())  # type: ignore[arg-type]
 

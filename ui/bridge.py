@@ -5,18 +5,15 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import asdict
-from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlparse
 
-from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot, QUrl
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot
 
-from config.constants import AppMeta, FeedDefaults, Paths
-from config.settings import Settings
+from config.constants import AppMeta
 from core.app_controller import AppController
-from core.event_bus import EventBus
 from core.models import FeedItem, FeedSource
+from ui.native_actions import open_external_url
 
 logger = logging.getLogger(__name__)
 
@@ -36,34 +33,22 @@ class WebBridge(QObject):
     _eventRelay = Signal(str)
     _finishRelay = Signal(str)
 
-    _EVENTS = (
-        "feed_added",
-        "feed_removed",
-        "feed_renamed",
-        "feed_category_changed",
-        "feed_refresh_started",
-        "feed_refresh_completed",
-        "feed_refresh_failed",
-        "refresh_state_changed",
-        "new_items_available",
-        "item_read_changed",
-        "config_changed",
-    )
-
     def __init__(self, controller: AppController, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._controller = controller
-        self._bus = EventBus()
         self._eventRelay.connect(self._deliver_event, Qt.ConnectionType.QueuedConnection)
         self._finishRelay.connect(self._deliver_finish, Qt.ConnectionType.QueuedConnection)
-        for event_name in self._EVENTS:
-            self._bus.subscribe(event_name, self._make_event_handler(event_name))
+        self._controller.register_event_listener(self._relay_controller_event)
 
-    def _make_event_handler(self, event_name: str):  # type: ignore[no-untyped-def]
-        def handler(payload: dict[str, Any]) -> None:
-            self._eventRelay.emit(self._json({"event": event_name, "payload": payload}))
-
-        return handler
+    def _relay_controller_event(
+        self,
+        event_name: str,
+        payload: dict[str, Any],
+    ) -> None:
+        """Relay controller events into Qt's queued GUI-thread delivery."""
+        self._eventRelay.emit(
+            self._json({"event": event_name, "payload": payload})
+        )
 
     @Slot(str)
     def _deliver_event(self, raw: str) -> None:
@@ -79,7 +64,7 @@ class WebBridge(QObject):
                 try:
                     title = self._controller.get_feed(source_id).title
                 except Exception:
-                    pass
+                    logger.debug("Titolo feed non disponibile per %s", source_id, exc_info=True)
                 if count:
                     self.newItemsDetected.emit(count, title)
             self._emit_state()
@@ -102,8 +87,8 @@ class WebBridge(QObject):
         self.stateChanged.emit(snapshot)
         try:
             self.unreadCountChanged.emit(json.loads(snapshot)["data"]["unreadCount"])
-        except Exception:
-            pass
+        except (KeyError, TypeError, json.JSONDecodeError):
+            logger.debug("Snapshot privo di unreadCount", exc_info=True)
 
     @staticmethod
     def _json(value: Any) -> str:
@@ -168,17 +153,7 @@ class WebBridge(QObject):
     @Slot(str, str, int, result=str)
     def getItems(self, scope: str, identifier: str, limit: int = 200) -> str:
         try:
-            limit = max(1, min(int(limit), 500))
-            if scope == "category":
-                items = self._controller.get_items_by_category(identifier, limit)
-            elif scope == "feed":
-                source = self._controller.get_feed(identifier)
-                cutoff = datetime.now(timezone.utc) - timedelta(hours=FeedDefaults.MAX_ITEM_AGE_HOURS)
-                items = [item for item in source.items if item.published >= cutoff]
-                items.sort(key=lambda item: item.published, reverse=True)
-                items = items[:limit]
-            else:
-                items = self._controller.get_all_items(limit)
+            items = self._controller.get_items(scope, identifier, limit)
             titles = {feed.id: feed.title for feed in self._controller.get_all_feeds()}
             return self._ok([self._serialize_item(item, titles) for item in items])
         except Exception as exc:
@@ -262,6 +237,8 @@ class WebBridge(QObject):
     def saveSettings(self, raw: str) -> str:
         try:
             payload = json.loads(raw)
+            if not isinstance(payload, dict):
+                raise ValueError("Formato impostazioni non valido")
             allowed = {
                 "refresh_interval_minutes",
                 "mark_read_on_select",
@@ -270,20 +247,9 @@ class WebBridge(QObject):
                 "notify_new_items",
                 "close_to_tray",
             }
-            manager = self._controller.settings_manager
-            current = manager.settings
-            candidate = Settings(**asdict(current))
-            old_interval = current.refresh_interval_minutes
-            for key, value in payload.items():
-                if key in allowed:
-                    setattr(candidate, key, value)
-            candidate.validate()
-            for key in allowed:
-                setattr(current, key, getattr(candidate, key))
-            manager.save()
-            if current.refresh_interval_minutes != old_interval:
-                self._controller.start_auto_refresh()
-            return self._ok(asdict(current), "Impostazioni salvate")
+            changes = {key: value for key, value in payload.items() if key in allowed}
+            updated = self._controller.update_settings(changes)
+            return self._ok(asdict(updated), "Impostazioni salvate")
         except Exception as exc:
             logger.warning("Salvataggio impostazioni fallito: %s", exc)
             return self._error(exc)
@@ -292,21 +258,15 @@ class WebBridge(QObject):
     def setSidebarWidth(self, width: int) -> str:
         try:
             width = max(240, min(int(width), 480))
-            settings = self._controller.settings_manager.settings
-            settings.source_split_width = width
-            self._controller.settings_manager.save()
-            return self._ok(width)
+            updated = self._controller.update_settings({"source_split_width": width})
+            return self._ok(updated.source_split_width)
         except Exception as exc:
             return self._error(exc)
 
     @Slot(int, result=str)
     def getLogTail(self, max_lines: int = 250) -> str:
         try:
-            max_lines = max(20, min(int(max_lines), 1000))
-            if not Paths.LOG_FILE.exists():
-                return self._ok({"lines": [], "path": str(Paths.LOG_FILE)})
-            lines = Paths.LOG_FILE.read_text(encoding="utf-8", errors="replace").splitlines()
-            return self._ok({"lines": lines[-max_lines:], "path": str(Paths.LOG_FILE)})
+            return self._ok(self._controller.get_log_tail(max_lines))
         except Exception as exc:
             logger.warning("Lettura log fallita: %s", exc)
             return self._error(exc)
@@ -314,12 +274,8 @@ class WebBridge(QObject):
     @Slot(str, result=str)
     def openExternal(self, raw_url: str) -> str:
         try:
-            url = QUrl.fromUserInput(raw_url.strip())
-            if not url.isValid() or url.scheme().lower() not in {"http", "https"}:
-                return self._error("Link non valido")
-            if not QDesktopServices.openUrl(url):
-                return self._error("Impossibile aprire il browser")
-            return self._ok(message="Link aperto")
+            ok, message = open_external_url(raw_url)
+            return self._ok(message=message) if ok else self._error(message)
         except Exception as exc:
             return self._error(exc)
 

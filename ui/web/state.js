@@ -12,8 +12,6 @@ const state = {
   modalReturnFocus: null,
 };
 
-let refreshPollTimer = null;
-
 const $ = (id) => document.getElementById(id);
 const els = {};
 const ICONS = {
@@ -81,20 +79,6 @@ function showToast(title, message = '') {
   window.setTimeout(() => toast.remove(), 3600);
 }
 
-function scheduleRefreshStatePoll(active) {
-  if (refreshPollTimer !== null) {
-    window.clearTimeout(refreshPollTimer);
-    refreshPollTimer = null;
-  }
-  if (!active) return;
-
-  refreshPollTimer = window.setTimeout(async () => {
-    refreshPollTimer = null;
-    const response = await bridgeCall('getSnapshot');
-    if (response?.ok) applySnapshot(response);
-  }, 250);
-}
-
 function applySnapshot(snapshot) {
   if (!snapshot?.ok) {
     showToast('Errore', snapshot?.message || 'Impossibile leggere lo stato');
@@ -117,7 +101,6 @@ function applySnapshot(snapshot) {
   const backendBusy = Boolean(refreshState.active);
   updateRefreshProgress(refreshState);
   els['refresh-all-btn'].disabled = backendBusy;
-  scheduleRefreshStatePoll(backendBusy);
 
   document.documentElement.style.setProperty('--font-scale', String(snapshot.data.settings.font_scale_factor || 1));
   document.documentElement.style.setProperty('--sidebar-width', `${Math.max(240, Math.min(480, snapshot.data.settings.source_split_width || 280))}px`);

@@ -47,9 +47,6 @@ class WebMainWindow(QMainWindow):
         self.bridge.requestQuit.connect(self.force_quit)
         self.bridge.requestHide.connect(self.hide_to_tray)
 
-        # A native show/activation can happen without a reliable WebEngine
-        # visibility transition (notably on KDE). Debounce all those paths into
-        # one explicit UI resync once the window is active again.
         self._ui_sync_timer = QTimer(self)
         self._ui_sync_timer.setSingleShot(True)
         self._ui_sync_timer.setInterval(80)
@@ -69,10 +66,7 @@ class WebMainWindow(QMainWindow):
 
     def _persist_geometry(self) -> None:
         try:
-            settings = self._controller.settings_manager.settings
-            settings.window_width = self.width()
-            settings.window_height = self.height()
-            self._controller.settings_manager.save()
+            self._controller.persist_window_geometry(self.width(), self.height())
         except Exception:
             logger.warning("Impossibile salvare la geometria finestra", exc_info=True)
 

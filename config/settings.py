@@ -1,19 +1,10 @@
-"""Gestione delle impostazioni utente persistenti.
-
-Le impostazioni sono salvate in JSON nella directory XDG appropriata
-(~/.config/news-aggregator/settings.json). Il modulo espone un hook di
-callback ``register_change_callback`` che altri moduli (es. il controller)
-possono usare per reagire ai cambiamenti senza creare dipendenze inverse.
-
-Questo modulo NON importa dal livello ``core/`` né da ``ui/``:
-``config/`` è puramente dichiarativo (vincolo §5.1.4).
-"""
+"""Persistent user settings behind one validated Python abstraction."""
 
 from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -28,26 +19,9 @@ ChangeCallback = Callable[["Settings"], None]
 
 @dataclass
 class Settings:
-    """Schema delle impostazioni utente con valori predefiniti.
+    """Schema and defaults for persisted user settings."""
 
-    Attributes:
-        refresh_interval_minutes: Intervallo di refresh automatico.
-        max_items_per_feed: Numero massimo di articoli mantenuti per feed.
-        mark_read_on_select: Marca automaticamente un articolo come letto
-            quando viene selezionato.
-        show_unread_only: Mostra solo gli articoli non letti nella vista.
-        font_scale_factor: Fattore di scala tipografico accessibilità.
-        window_width: Larghezza ultima finestra.
-        window_height: Altezza ultima finestra.
-        source_split_width: Larghezza pannello sorgenti.
-        notify_new_items: Mostra notifica desktop per nuovi articoli.
-        close_to_tray: Se True, la chiusura della finestra con la X
-            nasconde la finestra e mantiene attiva la tray icon (con
-            badge del numero di articoli non letti). Per uscire
-            davvero usare Ctrl+Q o "Esci" dal menu tray.
-    """
-
-    refresh_interval_minutes: int = 1  # 60 secondi (vincolo utente #3)
+    refresh_interval_minutes: int = 1
     max_items_per_feed: int = FeedDefaults.MAX_ITEMS_PER_FEED
     mark_read_on_select: bool = True
     show_unread_only: bool = False
@@ -55,19 +29,10 @@ class Settings:
     window_width: int = UIConstraints.WINDOW_DEFAULT_WIDTH
     window_height: int = UIConstraints.WINDOW_DEFAULT_HEIGHT
     source_split_width: int = UIConstraints.SOURCE_LIST_MIN_WIDTH
-    notify_new_items: bool = False  # l'utente non vuole essere disturbato
-    # Quando True, la chiusura della finestra con la X NON esce dall'app:
-    # nasconde la finestra e mantiene attiva la tray icon con il badge
-    # del numero di articoli non letti. Per uscire davvero usare Ctrl+Q
-    # o "Esci" dal menu tray.
+    notify_new_items: bool = False
     close_to_tray: bool = True
 
     def validate(self) -> None:
-        """Valida i vincoli delle impostazioni.
-
-        Raises:
-            ConfigValidationError: Se un valore è fuori dai limiti ammessi.
-        """
         if self.refresh_interval_minutes < 1:
             raise ConfigValidationError(
                 "refresh_interval_minutes deve essere >= 1"
@@ -83,13 +48,7 @@ class Settings:
 
 
 class SettingsManager:
-    """Loader/saver delle impostazioni utente in formato JSON.
-
-    Implementa il pattern singleton con stato incapsulato. Le modifiche
-    vengono notificate ai callback registrati tramite
-    ``register_change_callback`` (tipicamente l'AppController, che poi
-    emette ``config_changed`` sull'EventBus).
-    """
+    """Load, validate and atomically persist application settings."""
 
     _instance: SettingsManager | None = None
 
@@ -104,94 +63,100 @@ class SettingsManager:
         self._path: Path = path or Paths.SETTINGS_FILE
         self._settings: Settings = Settings()
         self._callbacks: list[ChangeCallback] = []
-        self._initialized: bool = True
+        self._initialized = True
         self.load()
 
     @property
     def settings(self) -> Settings:
-        """Restituisce l'istanza corrente delle impostazioni."""
-        return self._settings
+        """Return a detached read snapshot; writes go through ``update``."""
+        return self.snapshot()
+
+    def snapshot(self) -> Settings:
+        """Return a detached copy suitable for external consumers."""
+        return Settings(**asdict(self._settings))
 
     def register_change_callback(self, cb: ChangeCallback) -> None:
-        """Registra un callback richiamato a ogni modifica salvata.
-
-        Args:
-            cb: Funzione che riceve le nuove impostazioni.
-        """
         if cb not in self._callbacks:
             self._callbacks.append(cb)
 
     def load(self) -> Settings:
-        """Carica le impostazioni da disco.
-
-        Returns:
-            Le impostazioni caricate.
-        """
         Paths.ensure_user_dirs()
         if not self._path.exists():
             logger.info("File impostazioni non trovato, uso default: %s", self._path)
             self._settings = Settings()
-            return self._settings
+            return self.snapshot()
         try:
             raw: dict[str, Any] = json.loads(self._path.read_text(encoding="utf-8"))
-            self._settings = Settings(**raw)
-            self._settings.validate()
+            candidate = Settings(**raw)
+            candidate.validate()
+            self._settings = candidate
+        except OSError as exc:
+            logger.warning("Impostazioni non leggibili, uso default: %s", exc)
+            self._settings = Settings()
         except (json.JSONDecodeError, TypeError) as exc:
             logger.warning("Impostazioni corrotte, reset ai default: %s", exc)
             self._settings = Settings()
         except ConfigValidationError as exc:
             logger.warning("Impostazioni non valide, reset ai default: %s", exc)
             self._settings = Settings()
-        return self._settings
+        return self.snapshot()
 
     def save(self) -> None:
-        """Salva le impostazioni su disco e notifica i callback.
-
-        Raises:
-            ConfigError: Se la scrittura su disco fallisce.
-        """
+        """Persist the canonical settings atomically, then notify listeners."""
         Paths.ensure_user_dirs()
         self._settings.validate()
+        temporary = self._path.with_name(f".{self._path.name}.tmp")
         try:
-            self._path.write_text(
+            temporary.write_text(
                 json.dumps(asdict(self._settings), indent=2),
                 encoding="utf-8",
             )
+            temporary.replace(self._path)
         except OSError as exc:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                logger.debug("Impossibile rimuovere settings temporanee", exc_info=True)
             raise ConfigError(f"Impossibile salvare le impostazioni: {exc}") from exc
         self._notify_change()
 
     def get(self, key: str) -> Any:
-        """Restituisce il valore di un'impostazione per chiave."""
         if not hasattr(self._settings, key):
             raise ConfigError(f"Chiave impostazione non valida: {key}")
         return getattr(self._settings, key)
 
+    def update(self, changes: Mapping[str, Any]) -> Settings:
+        """Validate a complete candidate before replacing canonical settings."""
+        candidate = self.snapshot()
+        for key, value in changes.items():
+            if not hasattr(candidate, key):
+                raise ConfigError(f"Chiave impostazione non valida: {key}")
+            setattr(candidate, key, value)
+        candidate.validate()
+
+        previous = self._settings
+        self._settings = candidate
+        try:
+            self.save()
+        except Exception:
+            self._settings = previous
+            raise
+        return self.snapshot()
+
     def set(self, key: str, value: Any) -> None:
-        """Imposta un valore e salva immediatamente.
-
-        Args:
-            key: Nome dell'attributo in ``Settings``.
-            value: Nuovo valore.
-
-        Raises:
-            ConfigError: Se la chiave non esiste.
-            ConfigValidationError: Se il valore non è valido.
-        """
-        if not hasattr(self._settings, key):
-            raise ConfigError(f"Chiave impostazione non valida: {key}")
-        setattr(self._settings, key, value)
-        self._settings.validate()
-        self.save()
+        self.update({key: value})
 
     def reset(self) -> None:
-        """Ripristina i valori predefiniti."""
+        previous = self._settings
         self._settings = Settings()
-        self.save()
+        try:
+            self.save()
+        except Exception:
+            self._settings = previous
+            raise
 
     def _notify_change(self) -> None:
-        """Notifica tutti i callback registrati del cambiamento."""
-        snapshot: Settings = Settings(**asdict(self._settings))
+        snapshot = self.snapshot()
         for cb in self._callbacks:
             try:
                 cb(snapshot)
@@ -203,6 +168,4 @@ class SettingsManager:
                 )
 
 
-# Compatibility re-export per non rompere i client esistenti
-# che facevano from config.settings import EventBus (mai usato realmente)
 __all__ = ["Settings", "SettingsManager", "ChangeCallback", "AppMeta"]

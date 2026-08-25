@@ -20,7 +20,7 @@ def setup_logging() -> None:
     """Configure rotating application logging.
 
     Production logs default to INFO. Set ``NEWS_AGGREGATOR_LOG_LEVEL=DEBUG``
-    when detailed HTTP/EventBus diagnostics are needed.
+    when detailed networking and lifecycle diagnostics are needed.
     """
     Paths.ensure_user_dirs()
     level_name = os.environ.get("NEWS_AGGREGATOR_LOG_LEVEL", "INFO").upper()

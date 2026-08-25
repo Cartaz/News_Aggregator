@@ -19,6 +19,13 @@ def manager(tmp_paths: Path, reset_event_bus: None) -> FeedManager:
     return FeedManager()
 
 
+def _seed_cache(manager: FeedManager, source_id: str, resolved_url: str) -> None:
+    """Test-only setup for persisted cache metadata owned by FeedManager."""
+    with manager._lock:
+        manager._sources[source_id].resolved_feed_url = resolved_url
+    manager.save()
+
+
 def test_old_json_without_resolved_url_remains_compatible() -> None:
     source = deserialize_source(
         {
@@ -53,16 +60,16 @@ def test_discovered_url_is_persisted(
 
 def test_cached_url_is_used_before_original(manager: FeedManager) -> None:
     source = manager.add("https://example.com")
-    source.resolved_feed_url = "https://example.com/feed.xml"
-    manager.save()
+    cached = "https://example.com/feed.xml"
+    _seed_cache(manager, source.id, cached)
 
     with patch(
         "core.feed_manager.fetch_and_parse_resolved",
-        return_value=("Example", [], source.resolved_feed_url),
+        return_value=("Example", [], cached),
     ) as fetch_mock:
         manager.refresh(source.id)
 
-    fetch_mock.assert_called_once_with(source.resolved_feed_url, source.id)
+    fetch_mock.assert_called_once_with(cached, source.id)
 
 
 def test_broken_cache_falls_back_to_original_and_replaces_cache(
@@ -71,8 +78,7 @@ def test_broken_cache_falls_back_to_original_and_replaces_cache(
     source = manager.add("https://example.com")
     old_resolved = "https://example.com/old-feed.xml"
     new_resolved = "https://example.com/new-feed.xml"
-    source.resolved_feed_url = old_resolved
-    manager.save()
+    _seed_cache(manager, source.id, old_resolved)
 
     with patch(
         "core.feed_manager.fetch_and_parse_resolved",

@@ -69,6 +69,13 @@ def article(source_id: str, title: str) -> FeedItem:
     )
 
 
+def seed_items(manager: FeedManager, source_id: str, items: list[FeedItem]) -> None:
+    """Test-only setup that bypasses the defensive read snapshot intentionally."""
+    with manager._lock:
+        manager._sources[source_id].items = list(items)
+    manager.save()
+
+
 def test_native_restore_resyncs_stale_snapshot_and_items(qtbot, backend) -> None:  # type: ignore[no-untyped-def]
     manager, controller = backend
     source = manager.add("https://example.com/feed.xml", title="Example")
@@ -84,11 +91,9 @@ def test_native_restore_resyncs_stale_snapshot_and_items(qtbot, backend) -> None
     window.hide()
     qtbot.waitUntil(lambda: not window.isVisible(), timeout=2000)
 
-    # Simulate an auto-refresh having updated the persistent/core state while
-    # WebEngine received no stateChanged/backendEvent signal at all.
-    refreshed = manager.get(source.id)
-    refreshed.items = [article(source.id, "Arrived While Hidden")]
-    manager.save()
+    # Simulate an auto-refresh having updated canonical state while WebEngine
+    # received no stateChanged/backendEvent signal at all.
+    seed_items(manager, source.id, [article(source.id, "Arrived While Hidden")])
 
     window.restore_from_tray()
     qtbot.waitUntil(window.isVisible, timeout=2000)
