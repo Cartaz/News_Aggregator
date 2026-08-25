@@ -60,13 +60,18 @@ def test_bridge_delegates_item_scope_rules_to_controller() -> None:
 
 
 def test_bridge_does_not_own_filesystem_or_native_desktop_integration() -> None:
-    source = BRIDGE.read_text(encoding="utf-8")
-    assert "Paths." not in source
-    assert ".read_text(" not in source
-    assert "QDesktopServices" not in source
-    assert "QUrl" not in source
-    assert "self._controller.get_log_tail(max_lines)" in source
-    assert "open_external_url(raw_url)" in source
+    bridge_source = BRIDGE.read_text(encoding="utf-8")
+    window_source = WINDOW.read_text(encoding="utf-8")
+    assert "Paths." not in bridge_source
+    assert ".read_text(" not in bridge_source
+    assert "QDesktopServices" not in bridge_source
+    assert "QUrl" not in bridge_source
+    assert "open_external_url" not in bridge_source
+    assert "self._controller.get_log_tail(max_lines)" in bridge_source
+    assert "requestOpenExternal = Signal(str)" in bridge_source
+    assert "self.requestOpenExternal.emit(normalized)" in bridge_source
+    assert "from ui.native_actions import open_external_url" in window_source
+    assert "self.bridge.requestOpenExternal.connect(self._open_external)" in window_source
 
 
 def test_ui_layers_do_not_reach_into_settings_manager() -> None:
