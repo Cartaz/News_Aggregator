@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QApplication, QMainWindow
 from config.constants import AppMeta, Paths, UIConstraints
 from core.app_controller import AppController
 from ui.bridge import WebBridge
+from ui.native_actions import open_external_url
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,7 @@ class WebMainWindow(QMainWindow):
             self.setWindowIcon(QIcon(str(Paths.APP_ICON)))
 
         self.bridge = WebBridge(controller, self)
+        self.bridge.requestOpenExternal.connect(self._open_external)
         self.bridge.requestQuit.connect(self.force_quit)
         self.bridge.requestHide.connect(self.hide_to_tray)
 
@@ -69,6 +71,11 @@ class WebMainWindow(QMainWindow):
             self._controller.persist_window_geometry(self.width(), self.height())
         except Exception:
             logger.warning("Impossibile salvare la geometria finestra", exc_info=True)
+
+    def _open_external(self, url: str) -> None:
+        ok, message = open_external_url(url)
+        if not ok:
+            logger.warning("Apertura link esterno fallita: %s", message)
 
     def _schedule_ui_sync(self) -> None:
         self._ui_sync_timer.start()
