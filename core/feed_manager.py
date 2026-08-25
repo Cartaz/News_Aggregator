@@ -49,6 +49,12 @@ class FeedManager:
         """Return a detached source snapshot without exposing canonical lists."""
         return replace(source, items=list(source.items))
 
+    @staticmethod
+    def _age_cutoff() -> datetime:
+        return datetime.now(timezone.utc) - timedelta(
+            hours=FeedDefaults.MAX_ITEM_AGE_HOURS
+        )
+
     def set_event_sink(self, event_sink: FeedEventSink | None) -> None:
         """Set the single explicit sink for domain events."""
         self._event_sink = event_sink
@@ -263,9 +269,7 @@ class FeedManager:
             logger.info("Feed %s non modificato (HTTP 304)", source.url)
             return 0
 
-        cutoff = datetime.now(timezone.utc) - timedelta(
-            hours=FeedDefaults.MAX_ITEM_AGE_HOURS
-        )
+        cutoff = self._age_cutoff()
         visible_items = [
             item for item in result.items if item.published >= cutoff
         ][: FeedDefaults.MAX_ITEMS_PER_FEED]
@@ -292,7 +296,11 @@ class FeedManager:
         progress_cb: Callable[[str, int, int], None] | None = None,
     ) -> dict[str, Any]:
         with self._lock:
-            sources = [self._snapshot_source(source) for source in self._sources.values() if source.enabled]
+            sources = [
+                self._snapshot_source(source)
+                for source in self._sources.values()
+                if source.enabled
+            ]
         total = len(sources)
         if total == 0:
             return {"success": 0, "failed": 0, "errors": []}
@@ -402,24 +410,45 @@ class FeedManager:
         return self._snapshot_source(source)
 
     def get_categories(self) -> list[str]:
-        from core.category_ops import list_categories
-
-        return list_categories(self)
+        with self._lock:
+            return sorted(
+                {source.category for source in self._sources.values() if source.category}
+            )
 
     def get_feeds_by_category(self, category: str) -> list[FeedSource]:
-        from core.category_ops import get_feeds_by_category
+        with self._lock:
+            return [
+                self._snapshot_source(source)
+                for source in self._sources.values()
+                if source.category == category
+            ]
 
-        return get_feeds_by_category(self, category)
-
-    def get_items_by_category(self, category: str, limit: int = 200) -> list[FeedItem]:
-        from core.category_ops import get_items_by_category
-
-        return get_items_by_category(self, category, limit)
+    def get_items_by_category(
+        self, category: str, limit: int = 200
+    ) -> list[FeedItem]:
+        cutoff = self._age_cutoff()
+        with self._lock:
+            items = [
+                item
+                for source in self._sources.values()
+                if source.category == category
+                for item in source.items
+                if item.published >= cutoff
+            ]
+        items.sort(key=lambda item: item.published, reverse=True)
+        return items[:limit]
 
     def get_all_items(self, limit: int = 200) -> list[FeedItem]:
-        from core.category_ops import get_all_items
-
-        return get_all_items(self, limit)
+        cutoff = self._age_cutoff()
+        with self._lock:
+            items = [
+                item
+                for source in self._sources.values()
+                for item in source.items
+                if item.published >= cutoff
+            ]
+        items.sort(key=lambda item: item.published, reverse=True)
+        return items[:limit]
 
     def _emit_refresh_completed(
         self,
