@@ -248,10 +248,7 @@ class WebBridge(QObject):
                 "close_to_tray",
             }
             changes = {key: value for key, value in payload.items() if key in allowed}
-            old_interval = self._controller.settings.refresh_interval_minutes
-            updated = self._controller.settings_manager.update(changes)
-            if updated.refresh_interval_minutes != old_interval:
-                self._controller.start_auto_refresh()
+            updated = self._controller.update_settings(changes)
             return self._ok(asdict(updated), "Impostazioni salvate")
         except Exception as exc:
             logger.warning("Salvataggio impostazioni fallito: %s", exc)
@@ -261,9 +258,7 @@ class WebBridge(QObject):
     def setSidebarWidth(self, width: int) -> str:
         try:
             width = max(240, min(int(width), 480))
-            updated = self._controller.settings_manager.update(
-                {"source_split_width": width}
-            )
+            updated = self._controller.update_settings({"source_split_width": width})
             return self._ok(updated.source_split_width)
         except Exception as exc:
             return self._error(exc)
