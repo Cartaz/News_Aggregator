@@ -13,7 +13,6 @@ from PySide6.QtGui import QDesktopServices
 
 from config.constants import AppMeta, Paths
 from core.app_controller import AppController
-from core.event_bus import EventBus
 from core.models import FeedItem, FeedSource
 
 logger = logging.getLogger(__name__)
@@ -34,34 +33,22 @@ class WebBridge(QObject):
     _eventRelay = Signal(str)
     _finishRelay = Signal(str)
 
-    _EVENTS = (
-        "feed_added",
-        "feed_removed",
-        "feed_renamed",
-        "feed_category_changed",
-        "feed_refresh_started",
-        "feed_refresh_completed",
-        "feed_refresh_failed",
-        "refresh_state_changed",
-        "new_items_available",
-        "item_read_changed",
-        "config_changed",
-    )
-
     def __init__(self, controller: AppController, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._controller = controller
-        self._bus = EventBus()
         self._eventRelay.connect(self._deliver_event, Qt.ConnectionType.QueuedConnection)
         self._finishRelay.connect(self._deliver_finish, Qt.ConnectionType.QueuedConnection)
-        for event_name in self._EVENTS:
-            self._bus.subscribe(event_name, self._make_event_handler(event_name))
+        self._controller.register_event_listener(self._relay_controller_event)
 
-    def _make_event_handler(self, event_name: str):  # type: ignore[no-untyped-def]
-        def handler(payload: dict[str, Any]) -> None:
-            self._eventRelay.emit(self._json({"event": event_name, "payload": payload}))
-
-        return handler
+    def _relay_controller_event(
+        self,
+        event_name: str,
+        payload: dict[str, Any],
+    ) -> None:
+        """Relay controller events into Qt's queued GUI-thread delivery."""
+        self._eventRelay.emit(
+            self._json({"event": event_name, "payload": payload})
+        )
 
     @Slot(str)
     def _deliver_event(self, raw: str) -> None:
