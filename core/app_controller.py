@@ -14,8 +14,9 @@ from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from config.constants import AppMeta, FeedDefaults
+from config.constants import AppMeta, FeedDefaults, Paths
 from config.settings import Settings, SettingsManager
+from core.diagnostics import read_log_tail
 from core.exceptions import FeedError
 from core.feed_manager import FeedManager
 from core.models import FeedItem, FeedSource
@@ -105,6 +106,10 @@ class AppController:
     def get_refresh_state(self) -> dict[str, Any]:
         with self._refresh_lock:
             return self._refresh_state.snapshot()
+
+    def get_log_tail(self, max_lines: int = 250) -> dict[str, object]:
+        """Return a bounded application-log tail through the core boundary."""
+        return read_log_tail(Paths.LOG_FILE, max_lines)
 
     def is_refreshing(self) -> bool:
         with self._refresh_lock:
