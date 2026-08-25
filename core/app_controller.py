@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -101,6 +101,7 @@ class AppController:
 
     @property
     def settings_manager(self) -> SettingsManager:
+        """Compatibility access; new consumers should use controller commands."""
         return self._settings_manager
 
     def get_refresh_state(self) -> dict[str, Any]:
@@ -110,6 +111,20 @@ class AppController:
     def get_log_tail(self, max_lines: int = 250) -> dict[str, object]:
         """Return a bounded application-log tail through the core boundary."""
         return read_log_tail(Paths.LOG_FILE, max_lines)
+
+    def update_settings(self, changes: Mapping[str, Any]) -> Settings:
+        """Apply validated settings and reschedule refresh when cadence changes."""
+        old_interval = self.settings.refresh_interval_minutes
+        updated = self._settings_manager.update(changes)
+        if updated.refresh_interval_minutes != old_interval:
+            self.start_auto_refresh()
+        return updated
+
+    def persist_window_geometry(self, width: int, height: int) -> Settings:
+        """Persist native window geometry through the canonical settings owner."""
+        return self._settings_manager.update(
+            {"window_width": int(width), "window_height": int(height)}
+        )
 
     def is_refreshing(self) -> bool:
         with self._refresh_lock:
