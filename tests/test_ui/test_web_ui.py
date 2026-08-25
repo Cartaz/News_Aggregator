@@ -29,6 +29,14 @@ def test_surface_and_accent_are_exact() -> None:
     assert "--text-muted: rgb(90, 90, 90);" in css
 
 
+def test_selected_article_uses_accent_and_inset_glow() -> None:
+    css = (WEB_ROOT / "styles.css").read_text(encoding="utf-8")
+    assert (
+        ".article-row.selected { border-radius: 13px; color: var(--accent); "
+        "box-shadow: var(--shadow-active-inset-glow); border-top-color: transparent; }"
+    ) in css
+
+
 def test_no_surface_gradients_or_forbidden_card_colors() -> None:
     css = (WEB_ROOT / "styles.css").read_text(encoding="utf-8").lower()
     assert "linear-gradient" not in css
