@@ -46,3 +46,13 @@ def test_bridge_delegates_item_scope_rules_to_controller() -> None:
     assert "self._controller.get_items(scope, identifier, limit)" in source
     assert "FeedDefaults.MAX_ITEM_AGE_HOURS" not in source
     assert "datetime.now" not in source
+
+
+def test_bridge_does_not_own_filesystem_or_native_desktop_integration() -> None:
+    source = BRIDGE.read_text(encoding="utf-8")
+    assert "Paths." not in source
+    assert ".read_text(" not in source
+    assert "QDesktopServices" not in source
+    assert "QUrl" not in source
+    assert "self._controller.get_log_tail(max_lines)" in source
+    assert "open_external_url(raw_url)" in source
