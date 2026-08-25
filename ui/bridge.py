@@ -12,7 +12,6 @@ from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot, QUrl
 from PySide6.QtGui import QDesktopServices
 
 from config.constants import AppMeta, Paths
-from config.settings import Settings
 from core.app_controller import AppController
 from core.event_bus import EventBus
 from core.models import FeedItem, FeedSource
@@ -251,6 +250,8 @@ class WebBridge(QObject):
     def saveSettings(self, raw: str) -> str:
         try:
             payload = json.loads(raw)
+            if not isinstance(payload, dict):
+                raise ValueError("Formato impostazioni non valido")
             allowed = {
                 "refresh_interval_minutes",
                 "mark_read_on_select",
@@ -259,20 +260,12 @@ class WebBridge(QObject):
                 "notify_new_items",
                 "close_to_tray",
             }
-            manager = self._controller.settings_manager
-            current = manager.settings
-            candidate = Settings(**asdict(current))
-            old_interval = current.refresh_interval_minutes
-            for key, value in payload.items():
-                if key in allowed:
-                    setattr(candidate, key, value)
-            candidate.validate()
-            for key in allowed:
-                setattr(current, key, getattr(candidate, key))
-            manager.save()
-            if current.refresh_interval_minutes != old_interval:
+            changes = {key: value for key, value in payload.items() if key in allowed}
+            old_interval = self._controller.settings.refresh_interval_minutes
+            updated = self._controller.settings_manager.update(changes)
+            if updated.refresh_interval_minutes != old_interval:
                 self._controller.start_auto_refresh()
-            return self._ok(asdict(current), "Impostazioni salvate")
+            return self._ok(asdict(updated), "Impostazioni salvate")
         except Exception as exc:
             logger.warning("Salvataggio impostazioni fallito: %s", exc)
             return self._error(exc)
@@ -281,10 +274,10 @@ class WebBridge(QObject):
     def setSidebarWidth(self, width: int) -> str:
         try:
             width = max(240, min(int(width), 480))
-            settings = self._controller.settings_manager.settings
-            settings.source_split_width = width
-            self._controller.settings_manager.save()
-            return self._ok(width)
+            updated = self._controller.settings_manager.update(
+                {"source_split_width": width}
+            )
+            return self._ok(updated.source_split_width)
         except Exception as exc:
             return self._error(exc)
 
