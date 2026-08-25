@@ -7,6 +7,12 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CORE_DIR = PROJECT_ROOT / "core"
 BRIDGE = PROJECT_ROOT / "ui" / "bridge.py"
+PRODUCTION_EVENT_FILES = (
+    CORE_DIR / "feed_manager.py",
+    CORE_DIR / "app_controller.py",
+    CORE_DIR / "feed_write_ops.py",
+    BRIDGE,
+)
 
 
 def test_feed_manager_private_storage_does_not_leak_to_other_core_modules() -> None:
@@ -23,6 +29,15 @@ def test_feed_manager_private_storage_does_not_leak_to_other_core_modules() -> N
         source = path.read_text(encoding="utf-8")
         if any(token in source for token in forbidden):
             offenders.append(path.name)
+    assert offenders == []
+
+
+def test_production_event_flow_does_not_depend_on_global_event_bus() -> None:
+    offenders: list[str] = []
+    for path in PRODUCTION_EVENT_FILES:
+        source = path.read_text(encoding="utf-8")
+        if "core.event_bus" in source or "EventBus()" in source:
+            offenders.append(str(path.relative_to(PROJECT_ROOT)))
     assert offenders == []
 
 
