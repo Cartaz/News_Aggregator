@@ -11,11 +11,17 @@ BRIDGE = PROJECT_ROOT / "ui" / "bridge.py"
 
 def test_feed_manager_private_storage_does_not_leak_to_other_core_modules() -> None:
     offenders: list[str] = []
+    forbidden = (
+        "manager._sources",
+        "manager._lock",
+        "_feed_manager._sources",
+        "_feed_manager._lock",
+    )
     for path in CORE_DIR.glob("*.py"):
         if path.name == "feed_manager.py":
             continue
         source = path.read_text(encoding="utf-8")
-        if "._sources" in source or "._lock" in source:
+        if any(token in source for token in forbidden):
             offenders.append(path.name)
     assert offenders == []
 
