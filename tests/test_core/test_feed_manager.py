@@ -13,7 +13,7 @@ from core.feed_manager import FeedManager
 
 
 @pytest.fixture
-def manager(tmp_paths: Path, reset_event_bus: None) -> FeedManager:
+def manager(tmp_paths: Path) -> FeedManager:
     """Restituisce un FeedManager con storage temporaneo."""
     FeedManager._instance = None  # type: ignore[attr-defined]
     return FeedManager()
@@ -53,7 +53,7 @@ def test_get_unknown_raises(manager: FeedManager) -> None:
         manager.get("nonexistent_id")
 
 
-def test_persistence(tmp_paths: Path, reset_event_bus: None) -> None:
+def test_persistence(tmp_paths: Path) -> None:
     FeedManager._instance = None  # type: ignore[attr-defined]
     m1: FeedManager = FeedManager()
     m1.add("https://example.com/feed.xml", title="Test Feed")
