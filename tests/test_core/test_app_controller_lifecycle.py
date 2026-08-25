@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+
 from config.settings import Settings
 from core.app_controller import AppController
 
@@ -23,6 +25,9 @@ class _FeedManager:
 
     def get_all(self):  # type: ignore[no-untyped-def]
         return []
+
+    def refresh(self, source_id: str) -> int:
+        return 0
 
     def refresh_all(self, progress_cb=None):  # type: ignore[no-untyped-def]
         return {"success": 0, "failed": 0, "errors": []}
@@ -64,3 +69,60 @@ def test_shutdown_is_idempotent() -> None:
 
     controller.shutdown(wait_timeout=0)
     controller.shutdown(wait_timeout=0)
+
+
+def test_worker_remains_owned_until_completion_callback_returns() -> None:
+    controller, _ = _controller()
+    callback_started = threading.Event()
+    release_callback = threading.Event()
+
+    def done(success: bool, message: str) -> None:
+        assert success is True
+        callback_started.set()
+        release_callback.wait(timeout=2.0)
+
+    assert controller.refresh_feed_async("feed-a", done) is True
+    assert callback_started.wait(timeout=1.0)
+
+    with controller._refresh_lock:
+        worker = controller._refresh_thread
+    assert worker is not None
+    assert worker.is_alive()
+    assert controller.get_refresh_state()["active"] is False
+
+    # Operational state is finished, but a second worker must not overlap while
+    # the completion callback still belongs to the first worker.
+    assert controller.refresh_feed_async("feed-b") is False
+
+    release_callback.set()
+    worker.join(timeout=1.0)
+    assert not worker.is_alive()
+    with controller._refresh_lock:
+        assert controller._refresh_thread is None
+
+
+def test_shutdown_waits_for_worker_completion_callback() -> None:
+    controller, _ = _controller()
+    callback_started = threading.Event()
+    release_callback = threading.Event()
+
+    def done(success: bool, message: str) -> None:
+        callback_started.set()
+        release_callback.wait(timeout=2.0)
+
+    assert controller.refresh_feed_async("feed-a", done) is True
+    assert callback_started.wait(timeout=1.0)
+
+    shutdown_done = threading.Event()
+
+    def shutdown_controller() -> None:
+        controller.shutdown(wait_timeout=1.0)
+        shutdown_done.set()
+
+    shutdown_thread = threading.Thread(target=shutdown_controller)
+    shutdown_thread.start()
+    assert not shutdown_done.wait(timeout=0.05)
+
+    release_callback.set()
+    assert shutdown_done.wait(timeout=1.0)
+    shutdown_thread.join(timeout=1.0)
