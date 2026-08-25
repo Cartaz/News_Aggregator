@@ -90,6 +90,9 @@ class SettingsManager:
             candidate = Settings(**raw)
             candidate.validate()
             self._settings = candidate
+        except OSError as exc:
+            logger.warning("Impostazioni non leggibili, uso default: %s", exc)
+            self._settings = Settings()
         except (json.JSONDecodeError, TypeError) as exc:
             logger.warning("Impostazioni corrotte, reset ai default: %s", exc)
             self._settings = Settings()
