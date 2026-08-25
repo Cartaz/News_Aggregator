@@ -6,12 +6,12 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CORE_DIR = PROJECT_ROOT / "core"
+CORE_INIT = CORE_DIR / "__init__.py"
 BRIDGE = PROJECT_ROOT / "ui" / "bridge.py"
 WINDOW = PROJECT_ROOT / "ui" / "window.py"
 PRODUCTION_EVENT_FILES = (
     CORE_DIR / "feed_manager.py",
     CORE_DIR / "app_controller.py",
-    CORE_DIR / "feed_write_ops.py",
     BRIDGE,
 )
 
@@ -40,6 +40,16 @@ def test_production_event_flow_does_not_depend_on_global_event_bus() -> None:
         if "core.event_bus" in source or "EventBus()" in source:
             offenders.append(str(path.relative_to(PROJECT_ROOT)))
     assert offenders == []
+
+
+def test_core_public_surface_exposes_owned_abstractions_not_compatibility_helpers() -> None:
+    source = CORE_INIT.read_text(encoding="utf-8")
+    assert "feed_write_ops" not in source
+    assert "rename_feed" not in source
+    assert "set_category" not in source
+    assert "category_ops" not in source
+    assert "get_all_items" not in source
+    assert "list_categories" not in source
 
 
 def test_bridge_delegates_item_scope_rules_to_controller() -> None:
