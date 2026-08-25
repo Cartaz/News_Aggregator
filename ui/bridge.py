@@ -5,14 +5,13 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import asdict
-from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlparse
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot, QUrl
 from PySide6.QtGui import QDesktopServices
 
-from config.constants import AppMeta, FeedDefaults, Paths
+from config.constants import AppMeta, Paths
 from config.settings import Settings
 from core.app_controller import AppController
 from core.event_bus import EventBus
@@ -79,7 +78,7 @@ class WebBridge(QObject):
                 try:
                     title = self._controller.get_feed(source_id).title
                 except Exception:
-                    pass
+                    logger.debug("Titolo feed non disponibile per %s", source_id, exc_info=True)
                 if count:
                     self.newItemsDetected.emit(count, title)
             self._emit_state()
@@ -102,8 +101,8 @@ class WebBridge(QObject):
         self.stateChanged.emit(snapshot)
         try:
             self.unreadCountChanged.emit(json.loads(snapshot)["data"]["unreadCount"])
-        except Exception:
-            pass
+        except (KeyError, TypeError, json.JSONDecodeError):
+            logger.debug("Snapshot privo di unreadCount", exc_info=True)
 
     @staticmethod
     def _json(value: Any) -> str:
@@ -168,17 +167,7 @@ class WebBridge(QObject):
     @Slot(str, str, int, result=str)
     def getItems(self, scope: str, identifier: str, limit: int = 200) -> str:
         try:
-            limit = max(1, min(int(limit), 500))
-            if scope == "category":
-                items = self._controller.get_items_by_category(identifier, limit)
-            elif scope == "feed":
-                source = self._controller.get_feed(identifier)
-                cutoff = datetime.now(timezone.utc) - timedelta(hours=FeedDefaults.MAX_ITEM_AGE_HOURS)
-                items = [item for item in source.items if item.published >= cutoff]
-                items.sort(key=lambda item: item.published, reverse=True)
-                items = items[:limit]
-            else:
-                items = self._controller.get_all_items(limit)
+            items = self._controller.get_items(scope, identifier, limit)
             titles = {feed.id: feed.title for feed in self._controller.get_all_feeds()}
             return self._ok([self._serialize_item(item, titles) for item in items])
         except Exception as exc:
