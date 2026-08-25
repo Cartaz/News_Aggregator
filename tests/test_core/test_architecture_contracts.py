@@ -64,7 +64,7 @@ def test_bridge_delegates_item_scope_rules_to_controller() -> None:
     assert "datetime.now" not in source
 
 
-def test_bridge_does_not_own_filesystem_or_native_desktop_integration() -> None:
+def test_bridge_uses_injected_native_port_without_owning_qt_desktop_api() -> None:
     bridge_source = BRIDGE.read_text(encoding="utf-8")
     window_source = WINDOW.read_text(encoding="utf-8")
     assert "Paths." not in bridge_source
@@ -73,10 +73,16 @@ def test_bridge_does_not_own_filesystem_or_native_desktop_integration() -> None:
     assert "QUrl" not in bridge_source
     assert "open_external_url" not in bridge_source
     assert "self._controller.get_log_tail(max_lines)" in bridge_source
-    assert "requestOpenExternal = Signal(str)" in bridge_source
-    assert "self.requestOpenExternal.emit(normalized)" in bridge_source
+    assert "OpenExternalPort = Callable[[str], tuple[bool, str]]" in bridge_source
+    assert "ok, message = self._open_external(normalized)" in bridge_source
     assert "from ui.native_actions import open_external_url" in window_source
-    assert "self.bridge.requestOpenExternal.connect(self._open_external)" in window_source
+    assert "open_external=open_external_url" in window_source
+
+
+def test_refresh_event_delivery_has_no_timing_based_resync_workaround() -> None:
+    bridge_source = BRIDGE.read_text(encoding="utf-8")
+    assert "QTimer.singleShot" not in bridge_source
+    assert "QTimer" not in bridge_source
 
 
 def test_ui_layers_do_not_reach_into_settings_manager() -> None:
