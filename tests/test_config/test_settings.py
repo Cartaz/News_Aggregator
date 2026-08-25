@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -94,4 +95,16 @@ def test_corrupt_file_falls_back(tmp_paths: Path) -> None:
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     settings_path.write_text("{ invalid json", encoding="utf-8")
     manager = SettingsManager()
+    assert manager.settings.refresh_interval_minutes == 1
+
+
+def test_unreadable_file_falls_back_to_defaults(tmp_paths: Path) -> None:
+    SettingsManager._instance = None
+    settings_path = tmp_paths / "config" / "news-aggregator" / "settings.json"
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text("{}", encoding="utf-8")
+
+    with patch("pathlib.Path.read_text", side_effect=OSError("permission denied")):
+        manager = SettingsManager()
+
     assert manager.settings.refresh_interval_minutes == 1
