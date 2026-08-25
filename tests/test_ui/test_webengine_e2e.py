@@ -78,164 +78,160 @@ def open_app(qtbot, controller: AppController) -> QWebEngineView:
     return view
 
 
+def article(source_id: str, title: str, minutes_ago: int) -> FeedItem:
+    return FeedItem.from_raw(
+        source_id=source_id,
+        title=title,
+        link=f"https://example.com/{title.lower()}",
+        summary=f"Summary {title}",
+        published=datetime.now(timezone.utc) - timedelta(minutes=minutes_ago),
+    )
+
+
 def seed_items(manager: FeedManager, source_id: str, items: list[FeedItem]) -> None:
-    """Test-only setup that bypasses the defensive read snapshot intentionally."""
+    """Test-only setup that preserves the production defensive-read contract."""
     with manager._lock:
         manager._sources[source_id].items = list(items)
     manager.save()
 
 
-def article(source_id: str, suffix: str, *, read: bool = False) -> FeedItem:
-    return FeedItem.from_raw(
-        source_id=source_id,
-        title=f"Article {suffix}",
-        link=f"https://example.com/{suffix}",
-        summary=f"Summary {suffix}",
-        published=datetime.now(timezone.utc) - timedelta(minutes=2),
-    ).__class__(
-        **{
-            **FeedItem.from_raw(
-                source_id=source_id,
-                title=f"Article {suffix}",
-                link=f"https://example.com/{suffix}",
-                summary=f"Summary {suffix}",
-                published=datetime.now(timezone.utc) - timedelta(minutes=2),
-            ).__dict__,
-            "read": read,
-        }
-    )
-
-
 def test_webengine_boots_with_real_webchannel(qtbot, backend) -> None:  # type: ignore[no-untyped-def]
     manager, controller = backend
-    source = manager.add("https://example.com/feed.xml", "Example")
-    seed_items(manager, source.id, [article(source.id, "one")])
+    manager.add("https://example.com/one.xml", title="One")
+    manager.add("https://example.com/two.xml", title="Two")
     view = open_app(qtbot, controller)
-
-    wait_js(qtbot, view, "document.querySelectorAll('.article-row').length === 1")
+    wait_js(qtbot, view, "document.querySelectorAll('#feed-list .source-row').length", 2)
     assert js(qtbot, view, "document.getElementById('app-name').textContent") == "News Aggregator"
+    assert js(qtbot, view, "typeof state !== 'undefined' && Boolean(state.backend)") is True
 
 
 def test_refresh_progresses_one_segment_per_completed_feed(qtbot, backend, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     manager, controller = backend
-    first = manager.add("https://example.com/one.xml", "One")
-    second = manager.add("https://example.com/two.xml", "Two")
-    third = manager.add("https://example.com/three.xml", "Three")
-    view = open_app(qtbot, controller)
+    first = manager.add("https://example.com/one.xml", title="One")
+    second = manager.add("https://example.com/two.xml", title="Two")
+    started = {first.id: threading.Event(), second.id: threading.Event()}
+    release = {first.id: threading.Event(), second.id: threading.Event()}
 
-    release = threading.Event()
-    completed = 0
-    lock = threading.Lock()
-
-    def fake_refresh(source_id: str) -> int:
-        nonlocal completed
-        release.wait(3)
-        with lock:
-            completed += 1
-        time.sleep(0.04)
+    def controlled_refresh(source_id: str) -> int:
+        started[source_id].set()
+        if not release[source_id].wait(5):
+            raise RuntimeError("test refresh release timeout")
         return 0
 
-    monkeypatch.setattr(manager, "refresh", fake_refresh)
-    assert controller.refresh_all_async()
-    wait_js(qtbot, view, "document.querySelectorAll('.refresh-segment').length === 3")
-    release.set()
-    qtbot.waitUntil(lambda: completed >= 1, timeout=3000)
-    wait_js(qtbot, view, "document.querySelectorAll('.refresh-segment.done').length >= 1")
-    qtbot.waitUntil(lambda: not controller.is_refreshing(), timeout=5000)
-    wait_js(qtbot, view, "document.querySelectorAll('.refresh-segment.done').length === 3")
-    assert {first.id, second.id, third.id} == {feed.id for feed in manager.get_all()}
+    monkeypatch.setattr(manager, "refresh", controlled_refresh)
+    view = open_app(qtbot, controller)
+    js(qtbot, view, "document.getElementById('refresh-all-btn').click(); true")
+    assert started[first.id].wait(2) and started[second.id].wait(2)
+    wait_js(qtbot, view, "state.snapshot.refreshing.active && state.snapshot.refreshing.total === 2")
+    wait_js(qtbot, view, "!document.getElementById('refresh-track').hidden && document.getElementById('refresh-fill').children.length === 2")
+    release[first.id].set()
+    wait_js(qtbot, view, "state.snapshot.refreshing.current", 1)
+    assert js(qtbot, view, "document.getElementById('refresh-track').getAttribute('aria-valuenow')") == "1"
+    release[second.id].set()
+    wait_js(qtbot, view, "state.snapshot.refreshing.active", False)
+    wait_js(qtbot, view, "document.getElementById('refresh-all-btn').disabled", False)
+    assert controller.get_refresh_state()["current"] == 2
 
 
 def test_background_refresh_reloads_current_scope_without_reclick(qtbot, backend, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     manager, controller = backend
-    source = manager.add("https://example.com/feed.xml", "Example")
-    seed_items(manager, source.id, [article(source.id, "before")])
-    view = open_app(qtbot, controller)
+    source = manager.add("https://example.com/feed.xml", title="Example")
+    manager.set_category(source.id, "Tech")
 
-    wait_js(qtbot, view, "document.querySelectorAll('.article-row').length === 1")
-    js(qtbot, view, f"document.querySelector('[data-scope=\"feed\"][data-id=\"{source.id}\"]').click()")
-    wait_js(qtbot, view, "document.getElementById('content-title').textContent === 'Example'")
-
-    after = article(source.id, "after")
-
-    def fake_refresh(_source_id: str) -> int:
-        seed_items(manager, source.id, [after])
+    def background_refresh(source_id: str) -> int:
+        seed_items(manager, source_id, [article(source_id, "Background News", 1)])
         return 1
 
-    monkeypatch.setattr(manager, "refresh", fake_refresh)
-    assert controller.refresh_feed_async(source.id)
-    qtbot.waitUntil(lambda: not controller.is_refreshing(), timeout=5000)
-    wait_js(qtbot, view, "document.querySelector('.article-title')?.textContent === 'Article after'")
+    monkeypatch.setattr(manager, "refresh", background_refresh)
+    view = open_app(qtbot, controller)
+    js(qtbot, view, "document.querySelector('#category-list .source-row').click(); true")
+    wait_js(qtbot, view, "document.getElementById('content-title').textContent", "Tech")
+    wait_js(qtbot, view, "document.querySelectorAll('.article-row').length", 0)
+
+    assert controller.refresh_all_async() is True
+    wait_js(qtbot, view, "state.snapshot.refreshing.active", False)
+    wait_js(qtbot, view, "document.getElementById('all-unread').textContent", "1")
+    wait_js(qtbot, view, "document.querySelector('#category-list .count-badge').textContent", "1")
+    wait_js(qtbot, view, "document.querySelectorAll('.article-row').length", 1)
+    assert js(qtbot, view, "document.querySelector('.article-title').textContent") == "Background News"
+    assert js(qtbot, view, "document.getElementById('content-title').textContent") == "Tech"
+
+    badge = "document.querySelector('#category-list .count-badge')"
+    assert js(qtbot, view, f"getComputedStyle({badge}).color") == "rgb(255, 102, 0)"
+    assert js(qtbot, view, f"getComputedStyle({badge}).backgroundColor") == "rgb(20, 20, 20)"
+    assert js(qtbot, view, f"getComputedStyle({badge}).boxShadow") != "none"
+    assert js(qtbot, view, f"getComputedStyle({badge}).borderRadius") == "10px"
+    assert js(qtbot, view, f"getComputedStyle({badge}).height") == "23px"
 
 
 def test_resume_sync_recovers_after_hidden_refresh_signals_are_missed(qtbot, backend) -> None:  # type: ignore[no-untyped-def]
     manager, controller = backend
-    source = manager.add("https://example.com/feed.xml", "Example")
-    before = article(source.id, "before")
-    seed_items(manager, source.id, [before])
+    source = manager.add("https://example.com/feed.xml", title="Example")
+    manager.set_category(source.id, "Tech")
     view = open_app(qtbot, controller)
+    js(qtbot, view, "document.querySelector('#category-list .source-row').click(); true")
+    wait_js(qtbot, view, "document.getElementById('content-title').textContent", "Tech")
+    wait_js(qtbot, view, "document.querySelectorAll('.article-row').length", 0)
 
-    wait_js(qtbot, view, "document.querySelector('.article-title')?.textContent === 'Article before'")
-    bridge = view._bridge  # type: ignore[attr-defined]
-    bridge._controller.unregister_event_listener(bridge._relay_controller_event)
-    after = article(source.id, "after")
-    seed_items(manager, source.id, [after])
-    bridge._controller.register_event_listener(bridge._relay_controller_event)
-    bridge.request_ui_sync()
+    view.hide()
+    seed_items(manager, source.id, [article(source.id, "Hidden News", 1)])
 
-    wait_js(qtbot, view, "document.querySelector('.article-title')?.textContent === 'Article after'")
+    # No controller/WebChannel event is emitted: this simulates a hidden
+    # WebEngine page missing the background state transition entirely.
+    view.show()
+    view._bridge.uiSyncRequested.emit()  # type: ignore[attr-defined]
+
+    wait_js(qtbot, view, "document.getElementById('all-unread').textContent", "1")
+    wait_js(qtbot, view, "document.querySelector('#category-list .count-badge').textContent", "1")
+    wait_js(qtbot, view, "document.querySelectorAll('.article-row').length", 1)
+    assert js(qtbot, view, "document.querySelector('.article-title').textContent") == "Hidden News"
 
 
 def test_unread_filter_and_arrow_navigation(qtbot, backend) -> None:  # type: ignore[no-untyped-def]
     manager, controller = backend
-    source = manager.add("https://example.com/feed.xml", "Example")
+    source = manager.add("https://example.com/feed.xml", title="Example")
     seed_items(
         manager,
         source.id,
-        [article(source.id, "one"), article(source.id, "two", read=True)],
+        [article(source.id, "Newest", 1), article(source.id, "Older", 2)],
     )
     view = open_app(qtbot, controller)
-
-    wait_js(qtbot, view, "document.querySelectorAll('.article-row').length === 2")
-    js(qtbot, view, "document.getElementById('unread-toggle').click()")
-    wait_js(qtbot, view, "document.querySelectorAll('.article-row').length === 1")
-    js(qtbot, view, "document.querySelector('.article-row').focus()")
-    js(qtbot, view, "document.dispatchEvent(new KeyboardEvent('keydown', {key:'ArrowDown', bubbles:true}))")
-    wait_js(qtbot, view, "Boolean(document.querySelector('.article-row.selected'))")
+    wait_js(qtbot, view, "document.querySelectorAll('.article-row').length", 2)
+    js(qtbot, view, "const t=document.getElementById('unread-toggle');t.checked=true;t.dispatchEvent(new Event('change',{bubbles:true}));true")
+    js(qtbot, view, "document.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));true")
+    wait_js(qtbot, view, "document.getElementById('detail-title').textContent", "Newest")
+    js(qtbot, view, "document.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));true")
+    wait_js(qtbot, view, "document.getElementById('detail-title').textContent", "Older")
+    wait_js(qtbot, view, "document.querySelectorAll('.article-row').length", 1)
+    items = {item.title: item for item in manager.get(source.id).items}
+    assert items["Newest"].read is True
+    assert items["Older"].read is False
 
 
 def test_add_edit_remove_and_error_feedback(qtbot, backend, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     manager, controller = backend
+    monkeypatch.setattr(manager, "refresh", lambda source_id: 0)
     view = open_app(qtbot, controller)
 
-    monkeypatch.setattr(controller, "refresh_feed_async", lambda *_args, **_kwargs: True)
-    result = js(
-        qtbot,
-        view,
-        "new Promise(resolve => backend.addFeed('example.com/feed.xml', 'Example', raw => resolve(JSON.parse(raw))))",
-    )
-    assert result["ok"] is True
-    source = manager.get_all()[0]
+    js(qtbot, view, "document.getElementById('add-feed-btn').click();true")
+    wait_js(qtbot, view, "Boolean(document.getElementById('feed-url'))")
+    js(qtbot, view, "document.getElementById('feed-url').value='https://example.com/feed.xml';document.getElementById('feed-title').value='Example Feed';document.querySelector('#modal-actions .active-accent').click();true")
+    wait_js(qtbot, view, "document.querySelectorAll('#feed-list .source-row').length", 1)
+    wait_js(qtbot, view, "document.getElementById('feed-actions').hidden", False)
 
-    renamed = js(
-        qtbot,
-        view,
-        f"new Promise(resolve => backend.renameFeed('{source.id}', 'Renamed', raw => resolve(JSON.parse(raw))))",
-    )
-    assert renamed["ok"] is True
-    assert manager.get(source.id).title == "Renamed"
+    js(qtbot, view, "document.getElementById('edit-feed-btn').click();true")
+    wait_js(qtbot, view, "Boolean(document.getElementById('edit-title'))")
+    js(qtbot, view, "document.getElementById('edit-title').value='Renamed Feed';document.getElementById('edit-category').value='Tech';document.querySelector('#modal-actions .active-accent').click();true")
+    wait_js(qtbot, view, "document.querySelector('#feed-list .source-label')?.textContent", "Renamed Feed")
+    wait_js(qtbot, view, "document.querySelector('#category-list .source-label')?.textContent", "Tech")
 
-    removed = js(
-        qtbot,
-        view,
-        f"new Promise(resolve => backend.removeFeed('{source.id}', raw => resolve(JSON.parse(raw))))",
-    )
-    assert removed["ok"] is True
-    assert manager.get_all() == []
+    js(qtbot, view, "document.getElementById('remove-feed-btn').click();true")
+    wait_js(qtbot, view, "document.getElementById('modal-title').textContent", "Rimuovi feed")
+    js(qtbot, view, "document.querySelector('#modal-actions .active-accent').click();true")
+    wait_js(qtbot, view, "document.querySelectorAll('#feed-list .source-row').length", 0)
 
-    error = js(
-        qtbot,
-        view,
-        "new Promise(resolve => backend.removeFeed('missing', raw => resolve(JSON.parse(raw))))",
-    )
-    assert error["ok"] is False
+    js(qtbot, view, "document.getElementById('add-feed-btn').click();true")
+    wait_js(qtbot, view, "Boolean(document.getElementById('feed-url'))")
+    js(qtbot, view, "document.getElementById('feed-url').value='invalid-scheme://example/feed';document.querySelector('#modal-actions .active-accent').click();true")
+    wait_js(qtbot, view, "[...document.querySelectorAll('.toast')].some(t=>t.textContent.includes('Feed non aggiunto'))")
+    assert js(qtbot, view, "document.getElementById('modal-backdrop').hidden") is False
