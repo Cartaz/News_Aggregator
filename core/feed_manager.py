@@ -7,6 +7,7 @@ import logging
 import threading
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -42,6 +43,11 @@ class FeedManager:
         self._event_sink = event_sink
         Paths.ensure_user_dirs()
         self.load()
+
+    @staticmethod
+    def _snapshot_source(source: FeedSource) -> FeedSource:
+        """Return a detached source snapshot without exposing canonical lists."""
+        return replace(source, items=list(source.items))
 
     def set_event_sink(self, event_sink: FeedEventSink | None) -> None:
         """Set the single explicit sink for domain events."""
@@ -117,7 +123,7 @@ class FeedManager:
             {"source_id": source.id, "url": source.url, "title": source.title},
         )
         logger.info("Feed aggiunto: %s", normalized)
-        return source
+        return self._snapshot_source(source)
 
     def remove(self, source_id: str) -> None:
         with self._lock:
@@ -140,11 +146,11 @@ class FeedManager:
         with self._lock:
             if source_id not in self._sources:
                 raise FeedNotFoundError(source_id)
-            return self._sources[source_id]
+            return self._snapshot_source(self._sources[source_id])
 
     def get_all(self) -> list[FeedSource]:
         with self._lock:
-            return list(self._sources.values())
+            return [self._snapshot_source(source) for source in self._sources.values()]
 
     @staticmethod
     def _normalize_fetch_result(raw: Any, requested_url: str) -> FeedFetchResult:
@@ -214,6 +220,10 @@ class FeedManager:
         source.http_etag = result.etag
         source.http_last_modified = result.last_modified
 
+    def _restore_source(self, source_id: str, snapshot: FeedSource) -> None:
+        with self._lock:
+            self._sources[source_id] = snapshot
+
     def refresh(self, source_id: str) -> int:
         with self._lock:
             if source_id not in self._sources:
@@ -238,12 +248,17 @@ class FeedManager:
             logger.error("Refresh fallito per %s: %s", source.url, exc)
             raise
 
+        previous = self._snapshot_source(source)
         if result.not_modified:
             with self._lock:
                 self._store_fetch_metadata(source, result)
                 source.last_updated = datetime.now(timezone.utc)
                 source.last_error = ""
-            self.save()
+            try:
+                self.save()
+            except Exception:
+                self._restore_source(source_id, previous)
+                raise
             self._emit_refresh_completed(source_id, source, [], not_modified=True)
             logger.info("Feed %s non modificato (HTTP 304)", source.url)
             return 0
@@ -261,7 +276,11 @@ class FeedManager:
             self._store_fetch_metadata(source, result)
             brand_new = source.replace_items(visible_items)
 
-        self.save()
+        try:
+            self.save()
+        except Exception:
+            self._restore_source(source_id, previous)
+            raise
         self._emit_refresh_completed(source_id, source, brand_new)
         logger.info(
             "Feed %s aggiornato: %d nuovi articoli", source.url, len(brand_new)
@@ -273,7 +292,7 @@ class FeedManager:
         progress_cb: Callable[[str, int, int], None] | None = None,
     ) -> dict[str, Any]:
         with self._lock:
-            sources = [source for source in self._sources.values() if source.enabled]
+            sources = [self._snapshot_source(source) for source in self._sources.values() if source.enabled]
         total = len(sources)
         if total == 0:
             return {"success": 0, "failed": 0, "errors": []}
@@ -355,7 +374,7 @@ class FeedManager:
             {"source_id": source_id, "new_title": cleaned},
         )
         logger.info("Feed %s rinominato in %r", source_id, cleaned)
-        return source
+        return self._snapshot_source(source)
 
     def set_category(self, source_id: str, category: str) -> FeedSource:
         cleaned = (category or "").strip()
@@ -380,7 +399,7 @@ class FeedManager:
             source_id,
             cleaned or "(nessuna)",
         )
-        return source
+        return self._snapshot_source(source)
 
     def get_categories(self) -> list[str]:
         from core.category_ops import list_categories
