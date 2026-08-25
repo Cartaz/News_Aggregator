@@ -30,6 +30,23 @@ def _item(source_id: str) -> FeedItem:
     )
 
 
+def _seed_http_cache(
+    manager: FeedManager,
+    source_id: str,
+    *,
+    resolved_url: str = "",
+    etag: str = "",
+    last_modified: str = "",
+) -> None:
+    """Test-only setup for cache metadata owned by FeedManager."""
+    with manager._lock:
+        source = manager._sources[source_id]
+        source.resolved_feed_url = resolved_url
+        source.http_etag = etag
+        source.http_last_modified = last_modified
+    manager.save()
+
+
 def test_fetch_url_response_sends_validators_and_accepts_304() -> None:
     last_modified = "Fri, 21 Aug 2026 09:00:00 GMT"
     response = MagicMock(
@@ -136,9 +153,7 @@ def test_conditional_failure_retries_same_cached_url_without_validators(
 ) -> None:
     source = manager.add("https://example.com")
     cached = "https://example.com/feed.xml"
-    source.resolved_feed_url = cached
-    source.http_etag = '"old"'
-    manager.save()
+    _seed_http_cache(manager, source.id, resolved_url=cached, etag='"old"')
 
     with patch(
         "core.feed_manager.fetch_and_parse_resolved",
@@ -162,10 +177,14 @@ def test_new_resolved_url_replaces_old_validators(manager: FeedManager) -> None:
     source = manager.add("https://example.com")
     old_cached = "https://example.com/old.xml"
     new_cached = "https://example.com/new.xml"
-    source.resolved_feed_url = old_cached
-    source.http_etag = '"old"'
-    source.http_last_modified = "Thu, 20 Aug 2026 09:00:00 GMT"
-    manager.save()
+    old_last_modified = "Thu, 20 Aug 2026 09:00:00 GMT"
+    _seed_http_cache(
+        manager,
+        source.id,
+        resolved_url=old_cached,
+        etag='"old"',
+        last_modified=old_last_modified,
+    )
 
     with patch(
         "core.feed_manager.fetch_and_parse_resolved",
@@ -188,7 +207,7 @@ def test_new_resolved_url_replaces_old_validators(manager: FeedManager) -> None:
             old_cached,
             source.id,
             etag='"old"',
-            last_modified="Thu, 20 Aug 2026 09:00:00 GMT",
+            last_modified=old_last_modified,
         ),
         call(old_cached, source.id),
         call(source.url, source.id),
@@ -201,9 +220,12 @@ def test_new_resolved_url_replaces_old_validators(manager: FeedManager) -> None:
 
 def test_200_without_validators_clears_stale_values(manager: FeedManager) -> None:
     source = manager.add("https://example.com/feed.xml")
-    source.http_etag = '"old"'
-    source.http_last_modified = "Thu, 20 Aug 2026 09:00:00 GMT"
-    manager.save()
+    _seed_http_cache(
+        manager,
+        source.id,
+        etag='"old"',
+        last_modified="Thu, 20 Aug 2026 09:00:00 GMT",
+    )
 
     with patch(
         "core.feed_manager.fetch_and_parse_resolved",
