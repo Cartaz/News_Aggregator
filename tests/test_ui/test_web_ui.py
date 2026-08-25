@@ -75,7 +75,7 @@ def test_refresh_ui_uses_controller_snapshot_as_single_source() -> None:
 
     assert "const backendBusy = Boolean(refreshState.active);" in state_js
     assert "updateRefreshProgress(refreshState);" in state_js
-    assert "scheduleRefreshStatePoll(backendBusy);" in state_js
+    assert "scheduleRefreshStatePoll" not in state_js
     assert "state.refresh" not in state_js
 
     assert "function updateRefreshProgress(refreshState = state.snapshot?.refreshing)" in articles_js
@@ -83,7 +83,11 @@ def test_refresh_ui_uses_controller_snapshot_as_single_source() -> None:
     assert "Number(refreshState.total)" in articles_js
     assert "state.refresh" not in articles_js
 
+    assert "state.backend.stateChanged.connect" in app_js
+    assert "state.backend.refreshFinished.connect" in app_js
+    assert "state.backend.uiSyncRequested.connect" in app_js
     assert "state.backend.refreshProgress.connect" not in app_js
+    assert "setInterval" not in app_js
 
 
 def test_segmented_refresh_progress_is_visible() -> None:
