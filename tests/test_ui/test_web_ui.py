@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -76,6 +77,7 @@ def test_refresh_ui_uses_controller_snapshot_as_single_source() -> None:
     assert "self._refresh_current" not in bridge_py
     assert "self._refresh_total" not in bridge_py
     assert "self._refreshing_feeds" not in bridge_py
+    assert "QTimer.singleShot" not in bridge_py
 
     assert "self._refresh_state = RefreshState()" in controller_py
     assert "def get_refresh_state(" in controller_py
@@ -131,3 +133,43 @@ def test_bridge_normalizes_user_urls() -> None:
         WebBridge._normalize_url("ftp://example.com/feed")
     with pytest.raises(ValueError):
         WebBridge._normalize_url("")
+
+
+def test_bridge_returns_actual_native_open_result() -> None:
+    pytest.importorskip("PySide6")
+    from ui.bridge import WebBridge
+
+    class ControllerStub:
+        def register_event_listener(self, listener) -> None:  # type: ignore[no-untyped-def]
+            self.listener = listener
+
+    opened: list[str] = []
+
+    def failing_open(url: str) -> tuple[bool, str]:
+        opened.append(url)
+        return False, "browser unavailable"
+
+    bridge = WebBridge(ControllerStub(), open_external=failing_open)  # type: ignore[arg-type]
+    result = json.loads(bridge.openExternal("example.com"))
+
+    assert opened == ["https://example.com"]
+    assert result["ok"] is False
+    assert result["message"] == "browser unavailable"
+
+
+def test_bridge_returns_success_only_after_native_open_succeeds() -> None:
+    pytest.importorskip("PySide6")
+    from ui.bridge import WebBridge
+
+    class ControllerStub:
+        def register_event_listener(self, listener) -> None:  # type: ignore[no-untyped-def]
+            self.listener = listener
+
+    bridge = WebBridge(  # type: ignore[arg-type]
+        ControllerStub(),
+        open_external=lambda url: (True, "Link aperto"),
+    )
+    result = json.loads(bridge.openExternal("https://example.com"))
+
+    assert result["ok"] is True
+    assert result["message"] == "Link aperto"

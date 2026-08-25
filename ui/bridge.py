@@ -4,17 +4,20 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import asdict
 from typing import Any
 from urllib.parse import urlparse
 
-from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot
+from PySide6.QtCore import QObject, Qt, Signal, Slot
 
 from config.constants import AppMeta
 from core.app_controller import AppController
 from core.models import FeedItem, FeedSource
 
 logger = logging.getLogger(__name__)
+
+OpenExternalPort = Callable[[str], tuple[bool, str]]
 
 
 class WebBridge(QObject):
@@ -26,16 +29,22 @@ class WebBridge(QObject):
     unreadCountChanged = Signal(int)
     newItemsDetected = Signal(int, str)
     uiSyncRequested = Signal()
-    requestOpenExternal = Signal(str)
     requestQuit = Signal()
     requestHide = Signal()
 
     _eventRelay = Signal(str)
     _finishRelay = Signal(str)
 
-    def __init__(self, controller: AppController, parent: QObject | None = None) -> None:
+    def __init__(
+        self,
+        controller: AppController,
+        parent: QObject | None = None,
+        *,
+        open_external: OpenExternalPort | None = None,
+    ) -> None:
         super().__init__(parent)
         self._controller = controller
+        self._open_external = open_external
         self._eventRelay.connect(self._deliver_event, Qt.ConnectionType.QueuedConnection)
         self._finishRelay.connect(self._deliver_finish, Qt.ConnectionType.QueuedConnection)
         self._controller.register_event_listener(self._relay_controller_event)
@@ -68,8 +77,6 @@ class WebBridge(QObject):
                 if count:
                     self.newItemsDetected.emit(count, title)
             self._emit_state()
-            if event_name in {"feed_refresh_completed", "feed_refresh_failed"}:
-                QTimer.singleShot(100, self._emit_state)
         except Exception:
             logger.debug("Impossibile elaborare evento WebChannel", exc_info=True)
 
@@ -275,9 +282,14 @@ class WebBridge(QObject):
     def openExternal(self, raw_url: str) -> str:
         try:
             normalized = self._normalize_url(raw_url)
-            self.requestOpenExternal.emit(normalized)
-            return self._ok(message="Apertura link richiesta")
+            if self._open_external is None:
+                return self._error("Apertura link non disponibile")
+            ok, message = self._open_external(normalized)
+            if not ok:
+                return self._error(message)
+            return self._ok(message=message)
         except Exception as exc:
+            logger.warning("Apertura link esterno fallita: %s", exc)
             return self._error(exc)
 
     @Slot()
@@ -299,3 +311,6 @@ class WebBridge(QObject):
         if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
             raise ValueError("Inserisci un URL HTTP o HTTPS valido")
         return value
+
+
+__all__ = ["WebBridge", "OpenExternalPort"]

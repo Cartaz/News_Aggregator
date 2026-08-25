@@ -135,7 +135,12 @@ class AppController:
 
     def _begin_refresh(self, scope: str, total: int, source_id: str = "") -> bool:
         with self._refresh_lock:
-            if self._shutting_down or self._refresh_state.active:
+            worker = self._refresh_thread
+            if (
+                self._shutting_down
+                or self._refresh_state.active
+                or (worker is not None and worker.is_alive())
+            ):
                 return False
             if scope not in {"all", "feed"}:
                 raise ValueError(f"Scope refresh non valido: {scope}")
@@ -151,10 +156,17 @@ class AppController:
         self._emit_refresh_state()
 
     def _finish_refresh(self) -> None:
+        """Finish operational refresh state without releasing worker ownership."""
         with self._refresh_lock:
             self._refresh_state.finish()
-            self._refresh_thread = None
         self._emit_refresh_state()
+
+    def _release_refresh_worker(self) -> None:
+        """Release ownership only when the actual worker function is ending."""
+        current = threading.current_thread()
+        with self._refresh_lock:
+            if self._refresh_thread is current:
+                self._refresh_thread = None
 
     def _on_feed_refresh_started(self, payload: dict[str, Any]) -> None:
         source_id = str(payload.get("source_id", ""))
@@ -324,20 +336,26 @@ class AppController:
         success = False
         message = ""
         try:
-            new_count = self._feed_manager.refresh(source_id)
-            success = True
-            message = f"{new_count} nuovi articoli"
-        except FeedError as exc:
-            message = str(exc)
-            logger.error("Refresh fallito: %s", exc)
-        except Exception as exc:
-            message = str(exc)
-            logger.error("Refresh fallito: %s", exc, exc_info=True)
+            try:
+                new_count = self._feed_manager.refresh(source_id)
+                success = True
+                message = f"{new_count} nuovi articoli"
+            except FeedError as exc:
+                message = str(exc)
+                logger.error("Refresh fallito: %s", exc)
+            except Exception as exc:
+                message = str(exc)
+                logger.error("Refresh fallito: %s", exc, exc_info=True)
+            finally:
+                self._set_refresh_progress(1, 1)
+                self._finish_refresh()
+            if on_done:
+                try:
+                    on_done(success, message)
+                except Exception:
+                    logger.exception("Callback completamento refresh feed fallita")
         finally:
-            self._set_refresh_progress(1, 1)
-            self._finish_refresh()
-        if on_done:
-            on_done(success, message)
+            self._release_refresh_worker()
 
     def _refresh_all_worker(
         self,
@@ -353,14 +371,20 @@ class AppController:
                     logger.exception("Callback progresso refresh fallita")
 
         try:
-            result = self._feed_manager.refresh_all(tracked_progress)
-        except Exception as exc:
-            logger.error("Refresh tutti fallito: %s", exc, exc_info=True)
-            result = {"success": 0, "failed": 0, "errors": [str(exc)]}
+            try:
+                result = self._feed_manager.refresh_all(tracked_progress)
+            except Exception as exc:
+                logger.error("Refresh tutti fallito: %s", exc, exc_info=True)
+                result = {"success": 0, "failed": 0, "errors": [str(exc)]}
+            finally:
+                self._finish_refresh()
+            if on_done:
+                try:
+                    on_done(result)
+                except Exception:
+                    logger.exception("Callback completamento refresh globale fallita")
         finally:
-            self._finish_refresh()
-        if on_done:
-            on_done(result)
+            self._release_refresh_worker()
 
     def shutdown(self, wait_timeout: float = 2.0) -> None:
         """Stop scheduling and wait a bounded time for the owned refresh worker."""
