@@ -44,8 +44,7 @@ class WebMainWindow(QMainWindow):
         if Paths.APP_ICON.exists():
             self.setWindowIcon(QIcon(str(Paths.APP_ICON)))
 
-        self.bridge = WebBridge(controller, self)
-        self.bridge.requestOpenExternal.connect(self._open_external)
+        self.bridge = WebBridge(controller, open_external=open_external_url, parent=self)
         self.bridge.requestQuit.connect(self.force_quit)
         self.bridge.requestHide.connect(self.hide_to_tray)
 
@@ -71,11 +70,6 @@ class WebMainWindow(QMainWindow):
             self._controller.persist_window_geometry(self.width(), self.height())
         except Exception:
             logger.warning("Impossibile salvare la geometria finestra", exc_info=True)
-
-    def _open_external(self, url: str) -> None:
-        ok, message = open_external_url(url)
-        if not ok:
-            logger.warning("Apertura link esterno fallita: %s", message)
 
     def _schedule_ui_sync(self) -> None:
         self._ui_sync_timer.start()
