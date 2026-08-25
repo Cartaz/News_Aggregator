@@ -14,7 +14,7 @@ from core.models import FeedItem
 
 
 @pytest.fixture
-def manager(tmp_paths: Path, reset_event_bus: None) -> FeedManager:
+def manager(tmp_paths: Path) -> FeedManager:
     return FeedManager()
 
 
