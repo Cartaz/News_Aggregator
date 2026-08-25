@@ -7,6 +7,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CORE_DIR = PROJECT_ROOT / "core"
 CORE_INIT = CORE_DIR / "__init__.py"
+EVENT_BUS = CORE_DIR / "event_bus.py"
 BRIDGE = PROJECT_ROOT / "ui" / "bridge.py"
 WINDOW = PROJECT_ROOT / "ui" / "window.py"
 PRODUCTION_EVENT_FILES = (
@@ -31,6 +32,10 @@ def test_feed_manager_private_storage_does_not_leak_to_other_core_modules() -> N
         if any(token in source for token in forbidden):
             offenders.append(path.name)
     assert offenders == []
+
+
+def test_global_event_bus_module_is_not_part_of_the_architecture() -> None:
+    assert not EVENT_BUS.exists()
 
 
 def test_production_event_flow_does_not_depend_on_global_event_bus() -> None:
