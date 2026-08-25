@@ -12,7 +12,7 @@ from core.feed_manager import FeedManager
 
 
 @pytest.fixture
-def manager(tmp_paths: Path, reset_event_bus: None) -> FeedManager:
+def manager(tmp_paths: Path) -> FeedManager:
     FeedManager._instance = None  # type: ignore[attr-defined]
     return FeedManager()
 
@@ -122,7 +122,7 @@ def test_get_all_items_mega_feed(manager: FeedManager, sample_rss_bytes: bytes) 
         assert all_items[i].published >= all_items[i + 1].published
 
 
-def test_category_persistence(tmp_paths: Path, reset_event_bus: None) -> None:
+def test_category_persistence(tmp_paths: Path) -> None:
     FeedManager._instance = None  # type: ignore[attr-defined]
     m1 = FeedManager()
     source = m1.add("https://example.com/feed", title="Originale")
