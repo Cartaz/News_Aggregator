@@ -9,7 +9,7 @@ News Aggregator è un'applicazione desktop Python per aggregare feed RSS/Atom in
 - ricerca locale negli articoli;
 - filtro `Solo non letti`;
 - stato letto/non letto persistente;
-- l'articolo corrente resta non letto mentre viene visualizzato e passa a letto quando si seleziona la notizia successiva;
+- con `Segna come letto al cambio articolo` attivo, l'articolo corrente resta non letto mentre viene visualizzato e passa a letto quando si seleziona la notizia successiva;
 - aggiunta, rinomina, categorizzazione e rimozione dei feed;
 - refresh singolo, globale e automatico in background;
 - progresso reale del refresh globale;
@@ -27,7 +27,7 @@ La UI usa un unico design system Dark Neumorphism:
 - nessun gradiente sulle superfici;
 - HTML semantico, focus da tastiera e supporto a `prefers-reduced-motion`.
 
-Il frontend vive in `ui/web/`. Non viene avviato alcun server HTTP locale.
+Il frontend vive in `ui/web/`. Non viene avviato alcun server HTTP locale. Lo stato operativo resta canonico in Python: gli aggiornamenti ordinari arrivano alla UI tramite signal Qt/QWebChannel; quando la finestra torna visibile viene richiesto un resync esplicito, senza polling periodico del backend.
 
 ## Requisiti
 
@@ -47,12 +47,12 @@ chmod +x install.sh
 Lo script:
 
 1. verifica che Python sia almeno alla versione 3.12;
-2. crea `.venv` se non esiste, oppure riutilizza quello presente;
+2. crea `.venv` se non esiste, riutilizza una virtualenv compatibile oppure la ricrea se è incompleta o usa Python precedente alla 3.12;
 3. aggiorna `pip`, `setuptools` e `wheel` dentro il virtual environment;
 4. installa le sole dipendenze runtime da `requirements.txt`;
 5. verifica che PySide6 WebEngine/WebChannel e le dipendenze di rete siano importabili.
 
-Lo script è ripetibile: può essere rieseguito per aggiornare le dipendenze senza ricreare manualmente l'ambiente virtuale.
+Lo script è ripetibile e può essere rieseguito per aggiornare le dipendenze o riparare una `.venv` non compatibile.
 
 ## Avvio
 
@@ -98,7 +98,7 @@ news_aggregator/
 └── tests/
 ```
 
-`core/` resta framework-agnostic. La UI comunica con il backend esclusivamente attraverso `ui/bridge.py` e QWebChannel.
+`core/` resta framework-agnostic. `FeedManager` possiede catalogo e persistenza dei feed; `AppController` possiede lo stato operativo e coordina gli eventi applicativi. La UI comunica con il backend esclusivamente attraverso `ui/bridge.py` e QWebChannel.
 
 ## File utente
 
