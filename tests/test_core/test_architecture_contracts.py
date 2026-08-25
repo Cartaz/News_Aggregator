@@ -7,6 +7,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CORE_DIR = PROJECT_ROOT / "core"
 BRIDGE = PROJECT_ROOT / "ui" / "bridge.py"
+WINDOW = PROJECT_ROOT / "ui" / "window.py"
 PRODUCTION_EVENT_FILES = (
     CORE_DIR / "feed_manager.py",
     CORE_DIR / "app_controller.py",
@@ -56,3 +57,12 @@ def test_bridge_does_not_own_filesystem_or_native_desktop_integration() -> None:
     assert "QUrl" not in source
     assert "self._controller.get_log_tail(max_lines)" in source
     assert "open_external_url(raw_url)" in source
+
+
+def test_ui_layers_do_not_reach_into_settings_manager() -> None:
+    bridge_source = BRIDGE.read_text(encoding="utf-8")
+    window_source = WINDOW.read_text(encoding="utf-8")
+    assert ".settings_manager" not in bridge_source
+    assert ".settings_manager" not in window_source
+    assert "self._controller.update_settings(changes)" in bridge_source
+    assert "self._controller.persist_window_geometry" in window_source
