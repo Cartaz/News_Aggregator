@@ -8,12 +8,12 @@ from dataclasses import asdict
 from typing import Any
 from urllib.parse import urlparse
 
-from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot, QUrl
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot
 
-from config.constants import AppMeta, Paths
+from config.constants import AppMeta
 from core.app_controller import AppController
 from core.models import FeedItem, FeedSource
+from ui.native_actions import open_external_url
 
 logger = logging.getLogger(__name__)
 
@@ -271,11 +271,7 @@ class WebBridge(QObject):
     @Slot(int, result=str)
     def getLogTail(self, max_lines: int = 250) -> str:
         try:
-            max_lines = max(20, min(int(max_lines), 1000))
-            if not Paths.LOG_FILE.exists():
-                return self._ok({"lines": [], "path": str(Paths.LOG_FILE)})
-            lines = Paths.LOG_FILE.read_text(encoding="utf-8", errors="replace").splitlines()
-            return self._ok({"lines": lines[-max_lines:], "path": str(Paths.LOG_FILE)})
+            return self._ok(self._controller.get_log_tail(max_lines))
         except Exception as exc:
             logger.warning("Lettura log fallita: %s", exc)
             return self._error(exc)
@@ -283,12 +279,8 @@ class WebBridge(QObject):
     @Slot(str, result=str)
     def openExternal(self, raw_url: str) -> str:
         try:
-            url = QUrl.fromUserInput(raw_url.strip())
-            if not url.isValid() or url.scheme().lower() not in {"http", "https"}:
-                return self._error("Link non valido")
-            if not QDesktopServices.openUrl(url):
-                return self._error("Impossibile aprire il browser")
-            return self._ok(message="Link aperto")
+            ok, message = open_external_url(raw_url)
+            return self._ok(message=message) if ok else self._error(message)
         except Exception as exc:
             return self._error(exc)
 
