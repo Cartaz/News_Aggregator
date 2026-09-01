@@ -355,19 +355,53 @@ class WebBridge(QObject):
                 "close_to_tray",
             }
             changes = {key: value for key, value in payload.items() if key in allowed}
-            updated = self._controller.update_settings(changes)
-            return self._ok(asdict(updated), "Impostazioni salvate")
+
+            def done(
+                operation_id: str,
+                result: Any | None,
+                error: Exception | None,
+            ) -> None:
+                self._emit_command_result(
+                    operation_id,
+                    result,
+                    error,
+                    "Impostazioni salvate",
+                    asdict,
+                )
+
+            return self._started(
+                self._controller.update_settings_async(changes, done)
+            )
         except Exception as exc:
-            logger.warning("Salvataggio impostazioni fallito: %s", exc)
+            logger.warning("Salvataggio impostazioni non avviato: %s", exc)
             return self._error(exc)
 
     @Slot(int, result=str)
     def setSidebarWidth(self, width: int) -> str:
         try:
             width = max(240, min(int(width), 480))
-            updated = self._controller.update_settings({"source_split_width": width})
-            return self._ok(updated.source_split_width)
+
+            def done(
+                operation_id: str,
+                result: Any | None,
+                error: Exception | None,
+            ) -> None:
+                self._emit_command_result(
+                    operation_id,
+                    result,
+                    error,
+                    "Larghezza sidebar salvata",
+                    lambda settings: settings.source_split_width,
+                )
+
+            return self._started(
+                self._controller.update_settings_async(
+                    {"source_split_width": width},
+                    done,
+                )
+            )
         except Exception as exc:
+            logger.warning("Salvataggio larghezza sidebar non avviato: %s", exc)
             return self._error(exc)
 
     @Slot(int, result=str)
