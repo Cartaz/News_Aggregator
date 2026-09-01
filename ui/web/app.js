@@ -12,7 +12,7 @@ async function openSelectedLink() {
 async function markSelectedRead() {
   const item = state.items.find((candidate) => candidate.id === state.selectedItemId);
   if (!item || item.read) return;
-  const response = await bridgeCall('markRead', item.sourceId, item.id);
+  const response = await bridgeCommand('markRead', item.sourceId, item.id);
   if (!response?.ok) { showToast('Stato non aggiornato', response?.message || ''); return; }
   item.read = true;
   await loadSnapshot();
@@ -159,6 +159,8 @@ function bindEvents() {
 }
 
 function bindBackendSignals() {
+  state.backend.commandFinished.connect(handleCommandFinished);
+
   state.backend.stateChanged.connect((raw) => {
     try {
       const snapshot = JSON.parse(raw);

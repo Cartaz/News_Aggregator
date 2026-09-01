@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
@@ -20,11 +21,13 @@ from core.diagnostics import read_log_tail
 from core.exceptions import FeedError, RefreshCancelledError
 from core.feed_manager import FeedManager
 from core.models import FeedItem, FeedSource
+from core.mutation_worker import MutationWorker
 from core.refresh_state import RefreshState
 
 logger = logging.getLogger(__name__)
 
 AppEventListener = Callable[[str, dict[str, Any]], None]
+MutationDone = Callable[[str, Any | None, Exception | None], None]
 
 
 class AppController:
@@ -46,6 +49,7 @@ class AppController:
             return
         self._feed_manager = feed_manager or FeedManager()
         self._settings_manager = settings_manager or SettingsManager()
+        self._mutation_worker = MutationWorker()
         self._refresh_thread: threading.Thread | None = None
         self._refresh_cancel_event: threading.Event | None = None
         self._refresh_lock = threading.RLock()
@@ -264,6 +268,9 @@ class AppController:
     def set_category(self, source_id: str, category: str) -> FeedSource:
         return self._feed_manager.set_category(source_id, category)
 
+    def update_feed(self, source_id: str, title: str, category: str) -> FeedSource:
+        return self._feed_manager.update_feed(source_id, title, category)
+
     def get_categories(self) -> list[str]:
         return self._feed_manager.get_categories()
 
@@ -287,6 +294,72 @@ class AppController:
             for source in self._feed_manager.get_all()
             for item in source.items
             if not item.read and item.published >= cutoff
+        )
+
+    def _submit_mutation(
+        self,
+        operation: Callable[[], Any],
+        on_done: MutationDone | None,
+    ) -> str | None:
+        operation_id = uuid.uuid4().hex
+
+        def complete(result: Any | None, error: Exception | None) -> None:
+            if on_done is None:
+                return
+            try:
+                on_done(operation_id, result, error)
+            except Exception:
+                logger.exception("Callback completamento comando persistente fallita")
+
+        with self._refresh_lock:
+            if self._shutting_down:
+                return None
+            if not self._mutation_worker.submit(operation, complete):
+                return None
+        return operation_id
+
+    def add_feed_async(
+        self,
+        url: str,
+        title: str = "",
+        on_done: MutationDone | None = None,
+    ) -> str | None:
+        return self._submit_mutation(
+            lambda: self._feed_manager.add(url, title),
+            on_done,
+        )
+
+    def remove_feed_async(
+        self,
+        source_id: str,
+        on_done: MutationDone | None = None,
+    ) -> str | None:
+        return self._submit_mutation(
+            lambda: self._feed_manager.remove(source_id),
+            on_done,
+        )
+
+    def update_feed_async(
+        self,
+        source_id: str,
+        title: str,
+        category: str,
+        on_done: MutationDone | None = None,
+    ) -> str | None:
+        return self._submit_mutation(
+            lambda: self._feed_manager.update_feed(source_id, title, category),
+            on_done,
+        )
+
+    def mark_read_async(
+        self,
+        source_id: str,
+        item_id: str,
+        on_done: MutationDone | None = None,
+    ) -> str | None:
+        return self._submit_mutation(
+            lambda: self._feed_manager.mark_read(source_id, item_id),
+            on_done,
         )
 
     def refresh_feed_async(
@@ -433,7 +506,7 @@ class AppController:
             self._release_refresh_worker()
 
     def shutdown(self, wait_timeout: float | None = None) -> None:
-        """Cancel scheduling and wait a bounded time for the owned refresh worker."""
+        """Cancel scheduling and wait a bounded time for owned background work."""
         with self._refresh_lock:
             if self._shutting_down:
                 return
@@ -444,7 +517,7 @@ class AppController:
         if cancel_event is not None:
             cancel_event.set()
 
-        timeout = (
+        refresh_timeout = (
             FeedDefaults.REQUEST_TIMEOUT_SECONDS + 2.0
             if wait_timeout is None
             else max(0.0, wait_timeout)
@@ -454,16 +527,20 @@ class AppController:
             and worker.is_alive()
             and worker is not threading.current_thread()
         ):
-            worker.join(timeout=timeout)
+            worker.join(timeout=refresh_timeout)
             if worker.is_alive():
                 logger.warning(
                     "Worker refresh ancora attivo dopo %.1f secondi di shutdown",
-                    timeout,
+                    refresh_timeout,
                 )
+
+        mutation_timeout = 2.0 if wait_timeout is None else max(0.0, wait_timeout)
+        self._mutation_worker.shutdown(wait_timeout=mutation_timeout)
+
         self._feed_manager.set_event_sink(None)
         with self._event_lock:
             self._event_listeners.clear()
         logger.info("Controller shutdown completato")
 
 
-__all__ = ["AppController", "AppEventListener"]
+__all__ = ["AppController", "AppEventListener", "MutationDone"]

@@ -68,10 +68,7 @@ class FeedManager:
         return self._next_source_epoch
 
     def _source_is_current(self, source_id: str, epoch: int) -> bool:
-        return (
-            source_id in self._sources
-            and self._source_epochs.get(source_id) == epoch
-        )
+        return source_id in self._sources and self._source_epochs.get(source_id) == epoch
 
     def set_event_sink(self, event_sink: FeedEventSink | None) -> None:
         """Set the single explicit sink for domain events."""
@@ -463,12 +460,11 @@ class FeedManager:
             changed = source.mark_read(item_id)
             if not changed:
                 raise FeedError(f"Articolo non trovato: {item_id}")
-        try:
-            self.save()
-        except Exception:
-            with self._lock:
+            try:
+                self.save()
+            except Exception:
                 source.items = previous_items
-            raise
+                raise
         self._emit_event(
             "item_read_changed",
             {"source_id": source_id, "item_id": item_id, "read": True},
@@ -484,18 +480,18 @@ class FeedManager:
                 raise FeedNotFoundError(source_id)
             previous = source.title
             source.title = cleaned
-        try:
-            self.save()
-        except Exception:
-            with self._lock:
+            try:
+                self.save()
+            except Exception:
                 source.title = previous
-            raise
+                raise
+            snapshot = self._snapshot_source(source)
         self._emit_event(
             "feed_renamed",
             {"source_id": source_id, "new_title": cleaned},
         )
         logger.info("Feed %s rinominato in %r", source_id, cleaned)
-        return self._snapshot_source(source)
+        return snapshot
 
     def set_category(self, source_id: str, category: str) -> FeedSource:
         cleaned = (category or "").strip()
@@ -505,12 +501,12 @@ class FeedManager:
                 raise FeedNotFoundError(source_id)
             previous = source.category
             source.category = cleaned
-        try:
-            self.save()
-        except Exception:
-            with self._lock:
+            try:
+                self.save()
+            except Exception:
                 source.category = previous
-            raise
+                raise
+            snapshot = self._snapshot_source(source)
         self._emit_event(
             "feed_category_changed",
             {"source_id": source_id, "category": cleaned},
@@ -520,7 +516,46 @@ class FeedManager:
             source_id,
             cleaned or "(nessuna)",
         )
-        return self._snapshot_source(source)
+        return snapshot
+
+    def update_feed(self, source_id: str, title: str, category: str) -> FeedSource:
+        """Atomically update editable feed metadata and persist it once."""
+        cleaned_title = (title or "").strip()
+        cleaned_category = (category or "").strip()
+        if not cleaned_title:
+            raise FeedError("Il nuovo titolo non può essere vuoto")
+
+        with self._lock:
+            source = self._sources.get(source_id)
+            if not source:
+                raise FeedNotFoundError(source_id)
+            previous_title = source.title
+            previous_category = source.category
+            source.title = cleaned_title
+            source.category = cleaned_category
+            try:
+                self.save()
+            except Exception:
+                source.title = previous_title
+                source.category = previous_category
+                raise
+            snapshot = self._snapshot_source(source)
+
+        self._emit_event(
+            "feed_updated",
+            {
+                "source_id": source_id,
+                "title": cleaned_title,
+                "category": cleaned_category,
+            },
+        )
+        logger.info(
+            "Feed %s aggiornato: titolo=%r categoria=%r",
+            source_id,
+            cleaned_title,
+            cleaned_category or "(nessuna)",
+        )
+        return snapshot
 
     def get_categories(self) -> list[str]:
         with self._lock:

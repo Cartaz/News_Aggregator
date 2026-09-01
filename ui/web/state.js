@@ -12,6 +12,8 @@ const state = {
   modalReturnFocus: null,
 };
 
+const commandWaiters = new Map();
+const earlyCommandResults = new Map();
 const $ = (id) => document.getElementById(id);
 const els = {};
 const ICONS = {
@@ -40,6 +42,38 @@ function bridgeCall(method, ...args) {
       try { resolve(JSON.parse(raw)); }
       catch { resolve({ ok: false, message: 'Risposta backend non valida' }); }
     });
+  });
+}
+
+function handleCommandFinished(raw) {
+  let result;
+  try { result = typeof raw === 'string' ? JSON.parse(raw) : raw; }
+  catch { return; }
+  const operationId = result?.operationId;
+  if (!operationId) return;
+  const waiter = commandWaiters.get(operationId);
+  if (waiter) {
+    commandWaiters.delete(operationId);
+    waiter(result);
+    return;
+  }
+  earlyCommandResults.set(operationId, result);
+}
+
+async function bridgeCommand(method, ...args) {
+  const started = await bridgeCall(method, ...args);
+  if (!started?.ok) return started;
+  const operationId = started.data?.operationId;
+  if (!operationId) {
+    return { ok: false, message: 'Identificativo operazione mancante' };
+  }
+  if (earlyCommandResults.has(operationId)) {
+    const result = earlyCommandResults.get(operationId);
+    earlyCommandResults.delete(operationId);
+    return result;
+  }
+  return new Promise((resolve) => {
+    commandWaiters.set(operationId, resolve);
   });
 }
 
