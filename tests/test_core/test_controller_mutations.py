@@ -35,7 +35,6 @@ class _BlockingMutationFeedManager:
 
 
 def _controller(manager: _BlockingMutationFeedManager) -> AppController:
-    AppController._instance = None
     return AppController(manager, _SettingsManager())  # type: ignore[arg-type]
 
 
