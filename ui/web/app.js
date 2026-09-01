@@ -82,7 +82,7 @@ function bindEvents() {
     applyFilters();
     if (state.snapshot) {
       const settings = { ...state.snapshot.settings, show_unread_only: state.showUnreadOnly };
-      const response = await bridgeCall('saveSettings', JSON.stringify({ show_unread_only: settings.show_unread_only }));
+      const response = await bridgeCommand('saveSettings', JSON.stringify({ show_unread_only: settings.show_unread_only }));
       if (!response?.ok) showToast('Filtro non salvato', response?.message || '');
     }
   });
@@ -145,7 +145,7 @@ function bindEvents() {
   });
   els['sidebar-resizer'].addEventListener('pointerup', async () => {
     resizing = false;
-    if (pendingWidth !== null) await bridgeCall('setSidebarWidth', Math.round(pendingWidth));
+    if (pendingWidth !== null) await bridgeCommand('setSidebarWidth', Math.round(pendingWidth));
     pendingWidth = null;
   });
   els['sidebar-resizer'].addEventListener('keydown', async (event) => {
@@ -154,13 +154,11 @@ function bindEvents() {
     const current = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-width'), 10) || 280;
     const next = Math.max(240, Math.min(480, current + (event.key === 'ArrowRight' ? 16 : -16)));
     document.documentElement.style.setProperty('--sidebar-width', `${next}px`);
-    await bridgeCall('setSidebarWidth', next);
+    await bridgeCommand('setSidebarWidth', next);
   });
 }
 
 function bindBackendSignals() {
-  state.backend.commandFinished.connect(handleCommandFinished);
-
   state.backend.stateChanged.connect((raw) => {
     try {
       const snapshot = JSON.parse(raw);
@@ -202,6 +200,8 @@ function bindBackendSignals() {
       }
     } catch { /* ignore */ }
   });
+
+  state.backend.commandFinished.connect(handleCommandFinished);
 }
 
 async function start() {
