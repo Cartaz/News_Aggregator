@@ -50,20 +50,10 @@ class Settings:
 class SettingsManager:
     """Load, validate and atomically persist application settings."""
 
-    _instance: SettingsManager | None = None
-
-    def __new__(cls, *args: Any, **kwargs: Any) -> SettingsManager:
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
-
     def __init__(self, path: Path | None = None) -> None:
-        if getattr(self, "_initialized", False):
-            return
         self._path: Path = path or Paths.SETTINGS_FILE
         self._settings: Settings = Settings()
         self._callbacks: list[ChangeCallback] = []
-        self._initialized = True
         self.load()
 
     @property
