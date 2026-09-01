@@ -13,13 +13,14 @@ News Aggregator è un'applicazione desktop Python per aggregare feed RSS/Atom in
 - aggiunta, rinomina, categorizzazione e rimozione dei feed;
 - refresh singolo, globale e automatico in background;
 - progresso reale del refresh globale;
+- cancellazione esplicita dei refresh durante lo shutdown;
 - apertura degli articoli nel browser di sistema;
 - system tray e notifiche opzionali;
 - viewer del log applicativo.
 
 ## Interfaccia
 
-La UI usa un unico design system Dark Neumorphism:
+La UI usa un unico design system Dark Neumorphism, definito in `ui/web/styles.css`:
 
 - superficie unica: `#141414`;
 - accent unico: `#FF6600`;
@@ -28,6 +29,14 @@ La UI usa un unico design system Dark Neumorphism:
 - HTML semantico, focus da tastiera e supporto a `prefers-reduced-motion`.
 
 Il frontend vive in `ui/web/`. Non viene avviato alcun server HTTP locale. Lo stato operativo resta canonico in Python: gli aggiornamenti ordinari arrivano alla UI tramite signal Qt/QWebChannel; quando la finestra torna visibile viene richiesto un resync esplicito, senza polling periodico del backend.
+
+## Architettura e concorrenza
+
+`main.py` è il composition root: crea un solo `AppController`, la finestra e il tray, e garantisce lo shutdown del controller con cleanup deterministico. `AppController` e `SettingsManager` sono normali istanze esplicite, non singleton.
+
+`core/` resta indipendente da Qt e dal DOM. `FeedManager` possiede catalogo e persistenza dei feed; `AppController` possiede lo stato operativo e coordina refresh, impostazioni ed eventi applicativi. La conoscenza site-specific usata come fallback per la discovery RSS è confinata in `core/feed_discovery.py` invece di essere incorporata nell'orchestrazione HTTP.
+
+Le mutazioni persistenti avviate dalla UI vengono serializzate da un worker dedicato, quindi le scritture JSON non vengono eseguite sul thread GUI. Feed e impostazioni vengono pubblicati come stato canonico solo dopo una persistenza atomica riuscita; le letture della UI non tengono lock durante l'I/O su disco. La UI comunica con il backend esclusivamente attraverso `ui/bridge.py` e QWebChannel.
 
 ## Requisiti
 
@@ -73,6 +82,8 @@ Le dipendenze per i test sono separate da quelle runtime:
 .venv/bin/python -m pytest tests/ -v
 ```
 
+La CI verifica inoltre sintassi Python/JavaScript e gli E2E QtWebEngine in ambiente headless.
+
 ## Struttura
 
 ```text
@@ -83,8 +94,14 @@ news_aggregator/
 ├── requirements-dev.txt
 ├── config/
 ├── core/
+│   ├── app_controller.py
+│   ├── feed_discovery.py
+│   ├── feed_fetcher.py
+│   ├── feed_manager.py
+│   └── mutation_worker.py
 ├── ui/
 │   ├── bridge.py
+│   ├── native_actions.py
 │   ├── tray.py
 │   ├── window.py
 │   └── web/
@@ -97,8 +114,6 @@ news_aggregator/
 │       └── app.js
 └── tests/
 ```
-
-`core/` resta framework-agnostic. `FeedManager` possiede catalogo e persistenza dei feed; `AppController` possiede lo stato operativo e coordina gli eventi applicativi. La UI comunica con il backend esclusivamente attraverso `ui/bridge.py` e QWebChannel.
 
 ## File utente
 
