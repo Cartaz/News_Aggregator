@@ -33,20 +33,11 @@ MutationDone = Callable[[str, Any | None, Exception | None], None]
 class AppController:
     """Coordinate application services and own refresh lifecycle state."""
 
-    _instance: AppController | None = None
-
-    def __new__(cls, *args: Any, **kwargs: Any) -> AppController:
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
-
     def __init__(
         self,
         feed_manager: FeedManager | None = None,
         settings_manager: SettingsManager | None = None,
     ) -> None:
-        if getattr(self, "_initialized", False):
-            return
         self._feed_manager = feed_manager or FeedManager()
         self._settings_manager = settings_manager or SettingsManager()
         self._mutation_worker = MutationWorker()
@@ -58,7 +49,6 @@ class AppController:
         self._event_lock = threading.RLock()
         self._event_listeners: list[AppEventListener] = []
         self._shutting_down = False
-        self._initialized = True
         self._feed_manager.set_event_sink(self._on_feed_event)
         self._settings_manager.register_change_callback(self._on_settings_changed)
         logger.info("%s controller inizializzato", AppMeta.NAME)
