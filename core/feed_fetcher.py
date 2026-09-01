@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 
 from config.constants import FeedDefaults
 from core.exceptions import FeedFetchError, FeedParseError, RefreshCancelledError
+from core.feed_discovery import candidate_feed_urls
 from core.feed_http import HttpFetchResult, fetch_url_response
 from core.feed_link_extractor import extract_feed_links
 from core.feed_parser import parse_feed_bytes
@@ -18,26 +19,6 @@ logger = logging.getLogger(__name__)
 
 _XML_SNIFF_PREFIX: bytes = b"<?xml"
 _XML_ROOT_TAGS: tuple[bytes, ...] = (b"<rss", b"<feed", b"<rdf:RDF")
-
-_KNOWN_FEED_OVERRIDES: dict[str, list[str]] = {
-    "www.bloomberg.com": [
-        "https://feeds.bloomberg.com/news.rss",
-        "https://feeds.bloomberg.com/markets/news.rss",
-        "https://feeds.bloomberg.com/technology/news.rss",
-        "https://feeds.bloomberg.com/politics/news.rss",
-        "https://feeds.bloomberg.com/economics/news.rss",
-        "https://feeds.bloomberg.com/business/news.rss",
-    ],
-    "www.economist.com": [
-        "https://www.economist.com/leaders/rss.xml",
-        "https://www.economist.com/briefing/rss.xml",
-        "https://www.economist.com/the-world-this-week/rss.xml",
-        "https://www.economist.com/finance-and-economics/rss.xml",
-        "https://www.economist.com/business/rss.xml",
-        "https://www.economist.com/science-and-technology/rss.xml",
-        "https://www.economist.com/the-economist-explains/rss.xml",
-    ],
-}
 
 
 @dataclass(frozen=True)
@@ -200,7 +181,7 @@ def fetch_and_parse_resolved(
             )
 
         if not _is_feed_url(url):
-            for candidate in _guess_feed_paths(url):
+            for candidate in candidate_feed_urls(url):
                 _raise_if_cancelled(cancel_event)
                 logger.info("Auto-discovery fallback: provo path %s", candidate)
                 try:
@@ -225,7 +206,7 @@ def fetch_and_parse_resolved(
 
     if not _is_feed_url(url):
         last_exc: FeedFetchError | FeedParseError | None = None
-        for candidate in _guess_feed_paths(url):
+        for candidate in candidate_feed_urls(url):
             _raise_if_cancelled(cancel_event)
             logger.info(
                 "Auto-discovery fallback (fetch fallito): provo %s", candidate
@@ -301,28 +282,6 @@ def _fetch_feed_recursive(
             "page, oppure l'URL non punta a un feed reale.",
         )
     return _result_from_http(response, source_id, url)
-
-
-def _guess_feed_paths(base_url: str) -> list[str]:
-    parsed = urlparse(base_url)
-    if not parsed.scheme or not parsed.netloc:
-        return []
-
-    standard_paths: list[str] = []
-    if not parsed.path or parsed.path == "/" or parsed.path == "":
-        base = f"{parsed.scheme}://{parsed.netloc}"
-        standard_paths = [
-            f"{base}/rss.xml",
-            f"{base}/feed/",
-            f"{base}/feed.xml",
-            f"{base}/feeds.xml",
-            f"{base}/rss",
-            f"{base}/atom.xml",
-            f"{base}/index.xml",
-        ]
-
-    overrides: list[str] = _KNOWN_FEED_OVERRIDES.get(parsed.netloc.lower(), [])
-    return standard_paths + overrides
 
 
 __all__ = [
