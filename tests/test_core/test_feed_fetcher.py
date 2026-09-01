@@ -1,14 +1,14 @@
-"""Test per core/feed_fetcher.py (auto-discovery)."""
+"""Test per core/feed_fetcher.py e regole di auto-discovery."""
 
 from __future__ import annotations
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from core.exceptions import FeedFetchError, FeedParseError
+from core.feed_discovery import candidate_feed_urls
 from core.feed_fetcher import (
-    _guess_feed_paths,
     _is_feed_url,
     _looks_like_html,
     _looks_like_xml,
@@ -110,18 +110,18 @@ def test_is_feed_url_variants() -> None:
     assert _is_feed_url("https://example.com/news/article-1") is False
 
 
-def test_guess_feed_path_root() -> None:
-    """_guess_feed_paths deve restituire una lista con /rss.xml per URL root."""
-    paths: list[str] = _guess_feed_paths("https://example.com/")
+def test_candidate_feed_urls_root() -> None:
+    """La discovery convenzionale include /rss.xml per URL root."""
+    paths = candidate_feed_urls("https://example.com/")
     assert "https://example.com/rss.xml" in paths
     assert paths[0] == "https://example.com/rss.xml"
-    paths = _guess_feed_paths("https://example.com")
+    paths = candidate_feed_urls("https://example.com")
     assert "https://example.com/rss.xml" in paths
 
 
-def test_guess_feed_path_nested_returns_none() -> None:
-    """_guess_feed_paths non deve indovinare per path annidati."""
-    assert _guess_feed_paths("https://example.com/news/") == []
+def test_candidate_feed_urls_nested_unknown_domain_returns_none() -> None:
+    """La discovery non inventa path standard sotto sezioni annidate."""
+    assert candidate_feed_urls("https://example.com/news/") == []
 
 
 def test_fetch_and_parse_direct_xml(sample_rss_bytes: bytes) -> None:
@@ -161,7 +161,6 @@ def test_fetch_and_parse_auto_discovery() -> None:
         side_effect=[html_resp, feed_resp],
     ) as mock_get:
         title, items = fetch_and_parse("https://example.com/", "src1")
-    # Almeno 2 chiamate GET (HTML + feed; eventuali path fallback non contano)
     assert mock_get.call_count >= 2
     assert title == "Test Feed"
     assert len(items) == 1
@@ -175,7 +174,6 @@ def test_fetch_and_parse_no_feed_raises(sample_rss_bytes: bytes) -> None:
         raise_for_status=MagicMock(),
         status_code=200,
     )
-    # Disabilita curl_cffi per questo test
     with patch("core.feed_http.requests.get", return_value=html_resp), \
          patch("core.feed_http._HAS_CURL_CFFI", False):
         with pytest.raises(FeedParseError):
@@ -200,39 +198,21 @@ def test_fetch_and_parse_http_error() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_guess_feed_paths_includes_feeds_xml() -> None:
-    """_guess_feed_paths deve includere /feeds.xml (Future plc network).
-
-    Tom's Hardware, TechRadar, PCGamer, GamesRadar usano /feeds.xml
-    come path standard. Senza questo path, l'auto-discovery fallback
-    non trova il feed anche se esiste.
-    """
-    paths = _guess_feed_paths("https://www.tomshardware.com/")
+def test_candidate_feed_urls_includes_feeds_xml() -> None:
+    """I candidati standard includono /feeds.xml (Future plc network)."""
+    paths = candidate_feed_urls("https://www.tomshardware.com/")
     assert "https://www.tomshardware.com/feeds.xml" in paths
 
 
-def test_guess_feed_paths_excludes_non_standard_paths() -> None:
-    """_guess_feed_paths NON deve includere /rss/news o /rss/reviews.
-
-    Questi path non sono standard RSS e generano solo rumore: siti
-    come hwupgrade.it li servono come HTML (200 OK) facendo credere
-    all'auto-discovery di aver trovato un feed, per poi fallire al
-    parsing con "not well-formed (invalid token)".
-    """
-    paths = _guess_feed_paths("https://hwupgrade.it/")
+def test_candidate_feed_urls_excludes_non_standard_paths() -> None:
+    """I candidati standard non includono /rss/news o /rss/reviews."""
+    paths = candidate_feed_urls("https://hwupgrade.it/")
     assert "https://hwupgrade.it/rss/news" not in paths
     assert "https://hwupgrade.it/rss/reviews" not in paths
 
 
 def test_fetch_feed_recursive_rejects_html_response(sample_rss_bytes: bytes) -> None:
-    """_fetch_feed_recursive deve rifiutare risposte HTML con errore chiaro.
-
-    Riproduce il bug hwupgrade.it: il server risponde 200 OK ma con
-    HTML (Cloudflare challenge page o homepage), e il vecchio codice
-    passava i byte HTML a feedparser generando un errore generico
-    "not well-formed (invalid token)". Ora deve sollevare FeedParseError
-    con un messaggio che menziona HTML/WAF.
-    """
+    """_fetch_feed_recursive rifiuta risposte HTML con errore chiaro."""
     from core.feed_fetcher import _fetch_feed_recursive
 
     html_response = MagicMock(
@@ -253,14 +233,8 @@ def test_fetch_feed_recursive_rejects_html_response(sample_rss_bytes: bytes) -> 
 
 
 def test_browser_headers_no_br_when_brotli_missing() -> None:
-    """Senza brotli installato, Accept-Encoding non deve contenere 'br'.
-
-    Riproduce il bug tomshardware.com/kitguru.net: se l'app invia
-    `Accept-Encoding: gzip, deflate, br` senza avere brotli installato,
-    i server rispondono con `Content-Encoding: br` e requests non sa
-    decomprimere → feedparser riceve byte binari → "not well-formed".
-    """
-    from core.feed_http import _browser_headers, _HAS_BROTLI
+    """Senza brotli installato, Accept-Encoding non deve contenere 'br'."""
+    from core.feed_http import _HAS_BROTLI, _browser_headers
 
     headers = _browser_headers()
     if _HAS_BROTLI:
@@ -281,65 +255,40 @@ def test_cloudflare_challenge_detection() -> None:
 
     real_rss = b"<?xml version='1.0'?><rss><channel><title>Real</title>"
     assert _looks_like_cloudflare_challenge(real_rss) is False
-
     assert _looks_like_cloudflare_challenge(b"") is False
 
 
 # ---------------------------------------------------------------------------
-# Test di regressione per Bloomberg e The Economist
-# (homepage bloccata da WAF ma feed pubblici accessibili)
+# Test di regressione per Bloomberg e The Economist.
+# La conoscenza site-specific appartiene a core/feed_discovery.py.
 # ---------------------------------------------------------------------------
 
 
-def test_guess_feed_paths_includes_bloomberg_overrides() -> None:
-    """Per www.bloomberg.com devono essere inclusi i feed su feeds.bloomberg.com.
-
-    Bloomberg blocca la homepage con Cloudflare WAF aggressivo (anche
-    curl_cffi non passa la JS challenge). I feed reali vivono sul
-    sottodominio feeds.bloomberg.com che non ha WAF. L'app deve
-    provarli automaticamente quando l'utente aggiunge la homepage.
-    """
-    paths = _guess_feed_paths("https://www.bloomberg.com/")
+def test_candidate_feed_urls_includes_bloomberg_overrides() -> None:
+    paths = candidate_feed_urls("https://www.bloomberg.com/")
     assert "https://feeds.bloomberg.com/news.rss" in paths
     assert "https://feeds.bloomberg.com/markets/news.rss" in paths
 
 
-def test_guess_feed_paths_includes_bloomberg_europe_overrides() -> None:
-    """Per www.bloomberg.com/europe devono essere inclusi i feed generici.
-
-    Le sezioni regionali (europe, asia, africa, americas, middle-east)
-    NON hanno feed dedicato. L'utente che aggiunge /europe deve comunque
-    ottenere un feed della testata (quello generico /news.rss).
-    """
-    paths = _guess_feed_paths("https://www.bloomberg.com/europe")
+def test_candidate_feed_urls_includes_bloomberg_europe_overrides() -> None:
+    paths = candidate_feed_urls("https://www.bloomberg.com/europe")
     assert "https://feeds.bloomberg.com/news.rss" in paths
 
 
-def test_guess_feed_paths_includes_economist_overrides() -> None:
-    """Per www.economist.com devono essere inclusi i feed per sezione.
-
-    The Economist blocca la homepage con WAF e non ha <link rel=alternate>
-    nell'HTML. I feed reali sono su /<sezione>/rss.xml.
-    """
-    paths = _guess_feed_paths("https://www.economist.com/")
+def test_candidate_feed_urls_includes_economist_overrides() -> None:
+    paths = candidate_feed_urls("https://www.economist.com/")
     assert "https://www.economist.com/leaders/rss.xml" in paths
     assert "https://www.economist.com/business/rss.xml" in paths
     assert "https://www.economist.com/the-economist-explains/rss.xml" in paths
 
 
-def test_guess_feed_paths_unknown_domain_no_overrides() -> None:
-    """Per domini sconosciuti non devono esserci URL non-standard."""
-    paths = _guess_feed_paths("https://example.com/")
-    # Solo path standard, nessun URL su altro dominio
-    assert all("example.com" in p for p in paths)
+def test_candidate_feed_urls_unknown_domain_no_overrides() -> None:
+    paths = candidate_feed_urls("https://example.com/")
+    assert all("example.com" in path for path in paths)
 
 
-def test_guess_feed_paths_overrides_appended_after_standard() -> None:
-    """Gli override devono venire DOPO i path standard (così i path
-    standard vincono se esistono, per non spostare il feed già
-    configurato dall'utente in un URL diverso)."""
-    paths = _guess_feed_paths("https://www.bloomberg.com/")
-    # /rss.xml e /feed/ devono venire prima di feeds.bloomberg.com/news.rss
+def test_candidate_feed_urls_site_overrides_follow_standard_paths() -> None:
+    paths = candidate_feed_urls("https://www.bloomberg.com/")
     idx_rss = paths.index("https://www.bloomberg.com/rss.xml")
     idx_override = paths.index("https://feeds.bloomberg.com/news.rss")
     assert idx_rss < idx_override
