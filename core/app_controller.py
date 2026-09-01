@@ -352,6 +352,32 @@ class AppController:
             on_done,
         )
 
+    def update_settings_async(
+        self,
+        changes: Mapping[str, Any],
+        on_done: MutationDone | None = None,
+    ) -> str | None:
+        """Queue a detached settings update on the serial persistence worker."""
+        detached_changes = dict(changes)
+        return self._submit_mutation(
+            lambda: self.update_settings(detached_changes),
+            on_done,
+        )
+
+    def persist_window_geometry_async(
+        self,
+        width: int,
+        height: int,
+        on_done: MutationDone | None = None,
+    ) -> str | None:
+        """Queue native window geometry persistence without blocking Qt."""
+        width = int(width)
+        height = int(height)
+        return self._submit_mutation(
+            lambda: self.persist_window_geometry(width, height),
+            on_done,
+        )
+
     def refresh_feed_async(
         self,
         source_id: str,
