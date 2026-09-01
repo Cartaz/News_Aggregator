@@ -34,7 +34,8 @@ class _BlockingFeedManager:
     def get_all(self):  # type: ignore[no-untyped-def]
         return list(self.sources)
 
-    def refresh_all(self, progress_cb=None):  # type: ignore[no-untyped-def]
+    def refresh_all(self, progress_cb=None, cancel_event=None):  # type: ignore[no-untyped-def]
+        assert cancel_event is not None
         self.started.set()
         assert self.release.wait(2)
         total = len(self.sources)
@@ -43,7 +44,8 @@ class _BlockingFeedManager:
                 progress_cb(source.id, current, total)
         return {"success": total, "failed": 0, "errors": []}
 
-    def refresh(self, source_id: str) -> int:
+    def refresh(self, source_id: str, cancel_event=None) -> int:  # type: ignore[no-untyped-def]
+        assert cancel_event is not None
         self.started.set()
         assert self.release.wait(2)
         return 0

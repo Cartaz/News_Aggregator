@@ -65,30 +65,36 @@ def main() -> int:
         app.setWindowIcon(QIcon(str(Paths.APP_ICON)))
 
     controller = AppController()
-    controller.start_auto_refresh()
-    window = WebMainWindow(controller)
-    tray = TrayIcon(window)
+    exit_code: int | None = None
+    try:
+        controller.start_auto_refresh()
+        window = WebMainWindow(controller)
+        tray = TrayIcon(window)
 
-    tray.showWindowRequested.connect(window.restore_from_tray)
-    tray.messageClicked.connect(window.restore_from_tray)
-    tray.refreshAllRequested.connect(window.bridge.refreshAll)
-    tray.quitRequested.connect(window.force_quit)
-    window.bridge.unreadCountChanged.connect(tray.set_unread_count)
+        tray.showWindowRequested.connect(window.restore_from_tray)
+        tray.messageClicked.connect(window.restore_from_tray)
+        tray.refreshAllRequested.connect(window.bridge.refreshAll)
+        tray.quitRequested.connect(window.force_quit)
+        window.bridge.unreadCountChanged.connect(tray.set_unread_count)
 
-    def on_new_items(count: int, source_title: str) -> None:
+        def on_new_items(count: int, source_title: str) -> None:
+            tray.set_unread_count(controller.get_total_unread_count())
+            if controller.settings.notify_new_items:
+                tray.notify_new_items(count, source_title)
+
+        window.bridge.newItemsDetected.connect(on_new_items)
         tray.set_unread_count(controller.get_total_unread_count())
-        if controller.settings.notify_new_items:
-            tray.notify_new_items(count, source_title)
+        tray.show()
+        window.show()
 
-    window.bridge.newItemsDetected.connect(on_new_items)
-    tray.set_unread_count(controller.get_total_unread_count())
-    tray.show()
-    window.show()
-
-    exit_code = app.exec()
-    controller.shutdown()
-    logger.info("Uscita con codice %d", exit_code)
-    return exit_code
+        exit_code = app.exec()
+        return exit_code
+    finally:
+        controller.shutdown()
+        if exit_code is None:
+            logger.info("Shutdown completato durante avvio o event loop interrotto")
+        else:
+            logger.info("Uscita con codice %d", exit_code)
 
 
 if __name__ == "__main__":

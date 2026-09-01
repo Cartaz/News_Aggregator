@@ -6,13 +6,19 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CORE_DIR = PROJECT_ROOT / "core"
+CONFIG_DIR = PROJECT_ROOT / "config"
 CORE_INIT = CORE_DIR / "__init__.py"
 EVENT_BUS = CORE_DIR / "event_bus.py"
+FEED_FETCHER = CORE_DIR / "feed_fetcher.py"
+FEED_DISCOVERY = CORE_DIR / "feed_discovery.py"
+APP_CONTROLLER = CORE_DIR / "app_controller.py"
+SETTINGS = CONFIG_DIR / "settings.py"
+THEME_MIRROR = CONFIG_DIR / "theme.py"
 BRIDGE = PROJECT_ROOT / "ui" / "bridge.py"
 WINDOW = PROJECT_ROOT / "ui" / "window.py"
 PRODUCTION_EVENT_FILES = (
     CORE_DIR / "feed_manager.py",
-    CORE_DIR / "app_controller.py",
+    APP_CONTROLLER,
     BRIDGE,
 )
 
@@ -57,6 +63,32 @@ def test_core_public_surface_exposes_owned_abstractions_not_compatibility_helper
     assert "list_categories" not in source
 
 
+def test_controller_and_settings_are_explicit_instances_not_singletons() -> None:
+    for path in (APP_CONTROLLER, SETTINGS):
+        source = path.read_text(encoding="utf-8")
+        assert "_instance" not in source
+        assert "def __new__(" not in source
+
+
+def test_web_css_is_the_only_cross_platform_theme_definition() -> None:
+    config_init = (CONFIG_DIR / "__init__.py").read_text(encoding="utf-8")
+    assert not THEME_MIRROR.exists()
+    assert "config.theme" not in config_init
+    assert "ThemeColors" not in config_init
+
+
+def test_feed_fetcher_delegates_site_specific_candidate_knowledge() -> None:
+    fetcher_source = FEED_FETCHER.read_text(encoding="utf-8")
+    discovery_source = FEED_DISCOVERY.read_text(encoding="utf-8")
+
+    assert "from core.feed_discovery import candidate_feed_urls" in fetcher_source
+    assert "candidate_feed_urls(url)" in fetcher_source
+    assert "bloomberg.com" not in fetcher_source.lower()
+    assert "economist.com" not in fetcher_source.lower()
+    assert "www.bloomberg.com" in discovery_source
+    assert "www.economist.com" in discovery_source
+
+
 def test_bridge_delegates_item_scope_rules_to_controller() -> None:
     source = BRIDGE.read_text(encoding="utf-8")
     assert "self._controller.get_items(scope, identifier, limit)" in source
@@ -90,5 +122,7 @@ def test_ui_layers_do_not_reach_into_settings_manager() -> None:
     window_source = WINDOW.read_text(encoding="utf-8")
     assert ".settings_manager" not in bridge_source
     assert ".settings_manager" not in window_source
-    assert "self._controller.update_settings(changes)" in bridge_source
-    assert "self._controller.persist_window_geometry" in window_source
+    assert "self._controller.update_settings_async(" in bridge_source
+    assert "self._controller.update_settings(changes)" not in bridge_source
+    assert "self._controller.persist_window_geometry_async(" in window_source
+    assert "self._controller.persist_window_geometry(" not in window_source

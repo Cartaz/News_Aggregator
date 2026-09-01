@@ -11,13 +11,29 @@ function openAddFeedModal() {
   cancel.addEventListener('click', closeModal);
   add.addEventListener('click', async () => {
     add.disabled = true;
-    const response = await bridgeCall('addFeed', url.input.value, title.input.value);
+    const response = await bridgeCommand('addFeed', url.input.value, title.input.value);
+    if (!response?.ok) {
+      add.disabled = false;
+      showToast('Feed non aggiunto', response?.message || '');
+      url.input.focus();
+      return;
+    }
+
+    const source = response.data;
+    let refreshStarted = false;
+    if (source?.id) {
+      const refresh = await bridgeCall('refreshFeed', source.id);
+      refreshStarted = Boolean(refresh?.ok);
+    }
+
     add.disabled = false;
-    if (!response?.ok) { showToast('Feed non aggiunto', response?.message || ''); url.input.focus(); return; }
     closeModal();
-    showToast('Feed aggiunto', 'Il primo aggiornamento è stato avviato.');
+    showToast(
+      'Feed aggiunto',
+      refreshStarted ? 'Il primo aggiornamento è stato avviato.' : ''
+    );
     await loadSnapshot({ reloadItems: state.scope.type === 'all' });
-    if (response.data?.id) await selectScope('feed', response.data.id, response.data.title);
+    if (source?.id) await selectScope('feed', source.id, source.title);
   });
   openModal({ eyebrow: 'Nuova sorgente', title: 'Aggiungi un feed', body: [url.group, title.group, hint], actions: [cancel, add], focus: url.input });
 }
@@ -35,13 +51,19 @@ function openEditFeedModal() {
   cancel.addEventListener('click', closeModal);
   save.addEventListener('click', async () => {
     save.disabled = true;
-    const rename = await bridgeCall('renameFeed', feed.id, title.input.value);
-    if (!rename?.ok) { save.disabled = false; showToast('Modifica non salvata', rename?.message || ''); return; }
-    const categoryResult = await bridgeCall('setFeedCategory', feed.id, category.input.value);
+    const response = await bridgeCommand(
+      'updateFeed',
+      feed.id,
+      title.input.value,
+      category.input.value
+    );
     save.disabled = false;
-    if (!categoryResult?.ok) { showToast('Categoria non salvata', categoryResult?.message || ''); return; }
+    if (!response?.ok) {
+      showToast('Modifica non salvata', response?.message || '');
+      return;
+    }
     closeModal();
-    state.scope.title = title.input.value.trim();
+    state.scope.title = response.data?.title || title.input.value.trim();
     await loadSnapshot({ reloadItems: true });
     showToast('Feed aggiornato');
   });
@@ -59,8 +81,12 @@ function openRemoveFeedModal() {
   cancel.addEventListener('click', closeModal);
   remove.addEventListener('click', async () => {
     remove.disabled = true;
-    const response = await bridgeCall('removeFeed', feed.id);
-    if (!response?.ok) { remove.disabled = false; showToast('Feed non rimosso', response?.message || ''); return; }
+    const response = await bridgeCommand('removeFeed', feed.id);
+    remove.disabled = false;
+    if (!response?.ok) {
+      showToast('Feed non rimosso', response?.message || '');
+      return;
+    }
     closeModal();
     state.scope = { type: 'all', id: '', title: 'Tutti gli articoli' };
     state.selectedItemId = null;
@@ -158,7 +184,7 @@ function openSettingsModal() {
       font_scale_factor: Number(range.value),
     };
     save.disabled = true;
-    const response = await bridgeCall('saveSettings', JSON.stringify(payload));
+    const response = await bridgeCommand('saveSettings', JSON.stringify(payload));
     save.disabled = false;
     if (!response?.ok) { showToast('Impostazioni non salvate', response?.message || ''); return; }
     closeModal();

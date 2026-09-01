@@ -49,7 +49,7 @@ async function selectArticle(itemId) {
     && !previousItem.read
     && state.snapshot?.settings?.mark_read_on_select
   ) {
-    const response = await bridgeCall(
+    const response = await bridgeCommand(
       'markRead',
       previousItem.sourceId,
       previousItem.id

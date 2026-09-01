@@ -8,12 +8,11 @@ from unittest.mock import patch
 
 import pytest
 
-from config.settings import Settings, SettingsManager
+from config.settings import SettingsManager
 from core.exceptions import ConfigError, ConfigValidationError
 
 
 def test_default_settings(tmp_paths: Path) -> None:
-    SettingsManager._instance = None
     manager = SettingsManager()
     assert manager.settings.refresh_interval_minutes == 1
     assert manager.settings.max_items_per_feed == 50
@@ -21,16 +20,13 @@ def test_default_settings(tmp_paths: Path) -> None:
 
 
 def test_save_and_load(tmp_paths: Path) -> None:
-    SettingsManager._instance = None
     manager = SettingsManager()
     manager.set("refresh_interval_minutes", 30)
-    SettingsManager._instance = None
     loaded = SettingsManager()
     assert loaded.settings.refresh_interval_minutes == 30
 
 
 def test_invalid_value_raises_without_mutating_canonical_state(tmp_paths: Path) -> None:
-    SettingsManager._instance = None
     manager = SettingsManager()
 
     with pytest.raises(ConfigValidationError):
@@ -45,7 +41,6 @@ def test_invalid_value_raises_without_mutating_canonical_state(tmp_paths: Path) 
 
 
 def test_update_commits_multiple_values_together(tmp_paths: Path) -> None:
-    SettingsManager._instance = None
     manager = SettingsManager()
 
     updated = manager.update(
@@ -63,7 +58,6 @@ def test_update_commits_multiple_values_together(tmp_paths: Path) -> None:
 
 
 def test_snapshot_is_detached_from_canonical_settings(tmp_paths: Path) -> None:
-    SettingsManager._instance = None
     manager = SettingsManager()
     snapshot = manager.snapshot()
 
@@ -73,7 +67,6 @@ def test_snapshot_is_detached_from_canonical_settings(tmp_paths: Path) -> None:
 
 
 def test_invalid_key_raises(tmp_paths: Path) -> None:
-    SettingsManager._instance = None
     manager = SettingsManager()
     with pytest.raises(ConfigError):
         manager.get("nonexistent_key")
@@ -82,7 +75,6 @@ def test_invalid_key_raises(tmp_paths: Path) -> None:
 
 
 def test_reset(tmp_paths: Path) -> None:
-    SettingsManager._instance = None
     manager = SettingsManager()
     manager.set("refresh_interval_minutes", 30)
     manager.reset()
@@ -90,7 +82,6 @@ def test_reset(tmp_paths: Path) -> None:
 
 
 def test_corrupt_file_falls_back(tmp_paths: Path) -> None:
-    SettingsManager._instance = None
     settings_path = tmp_paths / "config" / "news-aggregator" / "settings.json"
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     settings_path.write_text("{ invalid json", encoding="utf-8")
@@ -99,7 +90,6 @@ def test_corrupt_file_falls_back(tmp_paths: Path) -> None:
 
 
 def test_unreadable_file_falls_back_to_defaults(tmp_paths: Path) -> None:
-    SettingsManager._instance = None
     settings_path = tmp_paths / "config" / "news-aggregator" / "settings.json"
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     settings_path.write_text("{}", encoding="utf-8")

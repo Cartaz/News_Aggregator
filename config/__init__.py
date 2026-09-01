@@ -1,7 +1,8 @@
-"""Pacchetto config: costanti, tema e impostazioni dell'applicazione.
+"""Public configuration surface for constants and application settings.
 
-Esporta l'interfaccia pubblica del livello configurazione. Questo livello
-è puramente dichiarativo e non importa da ``core/`` o ``ui/``.
+This package is declarative and does not import from ``core`` or ``ui``.
+Presentation tokens belong to ``ui/web/styles.css``; native Qt presentation
+keeps its small platform-specific styling inside ``ui``.
 """
 
 from __future__ import annotations
@@ -15,13 +16,6 @@ from config.constants import (
 )
 from config.exceptions import AppError, ConfigError, ConfigValidationError
 from config.settings import Settings, SettingsManager
-from config.theme import (
-    ThemeAnimation,
-    ThemeColors,
-    ThemeFonts,
-    ThemeSpacing,
-    ThemeTypography,
-)
 
 __all__ = [
     "AppMeta",
@@ -34,9 +28,4 @@ __all__ = [
     "ConfigValidationError",
     "Settings",
     "SettingsManager",
-    "ThemeColors",
-    "ThemeFonts",
-    "ThemeSpacing",
-    "ThemeTypography",
-    "ThemeAnimation",
 ]

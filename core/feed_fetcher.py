@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
 from config.constants import FeedDefaults
-from core.exceptions import FeedFetchError, FeedParseError
+from core.exceptions import FeedFetchError, FeedParseError, RefreshCancelledError
+from core.feed_discovery import candidate_feed_urls
 from core.feed_http import HttpFetchResult, fetch_url_response
 from core.feed_link_extractor import extract_feed_links
 from core.feed_parser import parse_feed_bytes
@@ -17,26 +19,6 @@ logger = logging.getLogger(__name__)
 
 _XML_SNIFF_PREFIX: bytes = b"<?xml"
 _XML_ROOT_TAGS: tuple[bytes, ...] = (b"<rss", b"<feed", b"<rdf:RDF")
-
-_KNOWN_FEED_OVERRIDES: dict[str, list[str]] = {
-    "www.bloomberg.com": [
-        "https://feeds.bloomberg.com/news.rss",
-        "https://feeds.bloomberg.com/markets/news.rss",
-        "https://feeds.bloomberg.com/technology/news.rss",
-        "https://feeds.bloomberg.com/politics/news.rss",
-        "https://feeds.bloomberg.com/economics/news.rss",
-        "https://feeds.bloomberg.com/business/news.rss",
-    ],
-    "www.economist.com": [
-        "https://www.economist.com/leaders/rss.xml",
-        "https://www.economist.com/briefing/rss.xml",
-        "https://www.economist.com/the-world-this-week/rss.xml",
-        "https://www.economist.com/finance-and-economics/rss.xml",
-        "https://www.economist.com/business/rss.xml",
-        "https://www.economist.com/science-and-technology/rss.xml",
-        "https://www.economist.com/the-economist-explains/rss.xml",
-    ],
-}
 
 
 @dataclass(frozen=True)
@@ -55,6 +37,11 @@ class FeedFetchResult:
         yield self.title
         yield self.items
         yield self.resolved_url
+
+
+def _raise_if_cancelled(cancel_event: threading.Event | None) -> None:
+    if cancel_event is not None and cancel_event.is_set():
+        raise RefreshCancelledError()
 
 
 def _looks_like_xml(content: bytes) -> bool:
@@ -120,6 +107,7 @@ def fetch_and_parse_resolved(
     *,
     etag: str = "",
     last_modified: str = "",
+    cancel_event: threading.Event | None = None,
 ) -> FeedFetchResult:
     """Recupera un feed includendo URL risolto e validator HTTP.
 
@@ -129,15 +117,27 @@ def fetch_and_parse_resolved(
     """
     actual_timeout: int = timeout or FeedDefaults.REQUEST_TIMEOUT_SECONDS
 
+    _raise_if_cancelled(cancel_event)
     response: HttpFetchResult | None = None
     fetch_failed = False
     try:
-        response = fetch_url_response(
-            url,
-            actual_timeout,
-            etag=etag,
-            last_modified=last_modified,
-        )
+        if cancel_event is None:
+            response = fetch_url_response(
+                url,
+                actual_timeout,
+                etag=etag,
+                last_modified=last_modified,
+            )
+        else:
+            response = fetch_url_response(
+                url,
+                actual_timeout,
+                etag=etag,
+                last_modified=last_modified,
+                cancel_event=cancel_event,
+            )
+    except RefreshCancelledError:
+        raise
     except FeedFetchError as exc:
         logger.debug(
             "Fetch iniziale fallito per %s, provo path fallback: %s",
@@ -146,6 +146,7 @@ def fetch_and_parse_resolved(
         )
         fetch_failed = True
 
+    _raise_if_cancelled(cancel_event)
     if not fetch_failed and response is not None:
         if response.not_modified:
             return FeedFetchResult(
@@ -172,17 +173,28 @@ def fetch_and_parse_resolved(
                 url,
                 feed_urls[0],
             )
-            return _fetch_feed_recursive(feed_urls[0], source_id, actual_timeout)
+            return _fetch_feed_recursive(
+                feed_urls[0],
+                source_id,
+                actual_timeout,
+                cancel_event=cancel_event,
+            )
 
         if not _is_feed_url(url):
-            for candidate in _guess_feed_paths(url):
+            for candidate in candidate_feed_urls(url):
+                _raise_if_cancelled(cancel_event)
                 logger.info("Auto-discovery fallback: provo path %s", candidate)
                 try:
                     result = _fetch_feed_recursive(
-                        candidate, source_id, actual_timeout
+                        candidate,
+                        source_id,
+                        actual_timeout,
+                        cancel_event=cancel_event,
                     )
                     logger.info("Auto-discovery: feed trovato a %s", candidate)
                     return result
+                except RefreshCancelledError:
+                    raise
                 except (FeedFetchError, FeedParseError) as exc:
                     logger.debug("Fallback path %s fallito: %s", candidate, exc)
 
@@ -194,20 +206,29 @@ def fetch_and_parse_resolved(
 
     if not _is_feed_url(url):
         last_exc: FeedFetchError | FeedParseError | None = None
-        for candidate in _guess_feed_paths(url):
+        for candidate in candidate_feed_urls(url):
+            _raise_if_cancelled(cancel_event)
             logger.info(
                 "Auto-discovery fallback (fetch fallito): provo %s", candidate
             )
             try:
-                result = _fetch_feed_recursive(candidate, source_id, actual_timeout)
+                result = _fetch_feed_recursive(
+                    candidate,
+                    source_id,
+                    actual_timeout,
+                    cancel_event=cancel_event,
+                )
                 logger.info("Auto-discovery: feed trovato a %s", candidate)
                 return result
+            except RefreshCancelledError:
+                raise
             except (FeedFetchError, FeedParseError) as exc:
                 logger.debug("Fallback path %s fallito: %s", candidate, exc)
                 last_exc = exc
         if last_exc is not None:
             raise last_exc
 
+    _raise_if_cancelled(cancel_event)
     raise FeedFetchError(
         url,
         "URL principale non raggiungibile e nessun path fallback "
@@ -222,14 +243,26 @@ def _fetch_feed_recursive(
     *,
     etag: str = "",
     last_modified: str = "",
+    cancel_event: threading.Event | None = None,
 ) -> FeedFetchResult:
     """Scarica e analizza un URL che si presume essere un feed."""
-    response = fetch_url_response(
-        url,
-        timeout,
-        etag=etag,
-        last_modified=last_modified,
-    )
+    _raise_if_cancelled(cancel_event)
+    if cancel_event is None:
+        response = fetch_url_response(
+            url,
+            timeout,
+            etag=etag,
+            last_modified=last_modified,
+        )
+    else:
+        response = fetch_url_response(
+            url,
+            timeout,
+            etag=etag,
+            last_modified=last_modified,
+            cancel_event=cancel_event,
+        )
+    _raise_if_cancelled(cancel_event)
     if response.not_modified:
         return FeedFetchResult(
             title="",
@@ -249,28 +282,6 @@ def _fetch_feed_recursive(
             "page, oppure l'URL non punta a un feed reale.",
         )
     return _result_from_http(response, source_id, url)
-
-
-def _guess_feed_paths(base_url: str) -> list[str]:
-    parsed = urlparse(base_url)
-    if not parsed.scheme or not parsed.netloc:
-        return []
-
-    standard_paths: list[str] = []
-    if not parsed.path or parsed.path == "/" or parsed.path == "":
-        base = f"{parsed.scheme}://{parsed.netloc}"
-        standard_paths = [
-            f"{base}/rss.xml",
-            f"{base}/feed/",
-            f"{base}/feed.xml",
-            f"{base}/feeds.xml",
-            f"{base}/rss",
-            f"{base}/atom.xml",
-            f"{base}/index.xml",
-        ]
-
-    overrides: list[str] = _KNOWN_FEED_OVERRIDES.get(parsed.netloc.lower(), [])
-    return standard_paths + overrides
 
 
 __all__ = [

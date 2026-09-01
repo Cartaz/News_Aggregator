@@ -66,10 +66,12 @@ class WebMainWindow(QMainWindow):
         self._view.load(QUrl.fromLocalFile(str(web_root / "index.html")))
 
     def _persist_geometry(self) -> None:
-        try:
-            self._controller.persist_window_geometry(self.width(), self.height())
-        except Exception:
-            logger.warning("Impossibile salvare la geometria finestra", exc_info=True)
+        operation_id = self._controller.persist_window_geometry_async(
+            self.width(),
+            self.height(),
+        )
+        if operation_id is None:
+            logger.warning("Salvataggio geometria finestra non accettato")
 
     def _schedule_ui_sync(self) -> None:
         self._ui_sync_timer.start()

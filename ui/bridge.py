@@ -26,6 +26,7 @@ class WebBridge(QObject):
     stateChanged = Signal(str)
     backendEvent = Signal(str)
     refreshFinished = Signal(str)
+    commandFinished = Signal(str)
     unreadCountChanged = Signal(int)
     newItemsDetected = Signal(int, str)
     uiSyncRequested = Signal()
@@ -34,6 +35,7 @@ class WebBridge(QObject):
 
     _eventRelay = Signal(str)
     _finishRelay = Signal(str)
+    _commandRelay = Signal(str)
 
     def __init__(
         self,
@@ -47,6 +49,10 @@ class WebBridge(QObject):
         self._open_external = open_external
         self._eventRelay.connect(self._deliver_event, Qt.ConnectionType.QueuedConnection)
         self._finishRelay.connect(self._deliver_finish, Qt.ConnectionType.QueuedConnection)
+        self._commandRelay.connect(
+            self._deliver_command,
+            Qt.ConnectionType.QueuedConnection,
+        )
         self._controller.register_event_listener(self._relay_controller_event)
 
     def _relay_controller_event(
@@ -85,6 +91,10 @@ class WebBridge(QObject):
         self.refreshFinished.emit(raw)
         self._emit_state()
 
+    @Slot(str)
+    def _deliver_command(self, raw: str) -> None:
+        self.commandFinished.emit(raw)
+
     def request_ui_sync(self) -> None:
         """Ask the web view to reload current state/items after becoming visible."""
         self.uiSyncRequested.emit()
@@ -109,6 +119,40 @@ class WebBridge(QObject):
     def _error(exc: Exception | str, *, details: str = "") -> str:
         message = str(exc) or "Operazione non riuscita"
         return WebBridge._json({"ok": False, "message": message, "details": details})
+
+    @classmethod
+    def _started(cls, operation_id: str | None) -> str:
+        if operation_id is None:
+            return cls._error("Operazione non accettata: applicazione in chiusura")
+        return cls._ok(
+            {"operationId": operation_id},
+            "Operazione avviata",
+        )
+
+    def _emit_command_result(
+        self,
+        operation_id: str,
+        result: Any | None,
+        error: Exception | None,
+        success_message: str,
+        serializer: Callable[[Any], Any] | None = None,
+    ) -> None:
+        if error is not None:
+            payload = {
+                "operationId": operation_id,
+                "ok": False,
+                "message": str(error) or "Operazione non riuscita",
+                "data": None,
+            }
+        else:
+            data = serializer(result) if serializer is not None else result
+            payload = {
+                "operationId": operation_id,
+                "ok": True,
+                "message": success_message,
+                "data": data,
+            }
+        self._commandRelay.emit(self._json(payload))
 
     def _serialize_feed(self, source: FeedSource) -> dict[str, Any]:
         return {
@@ -171,44 +215,100 @@ class WebBridge(QObject):
     def addFeed(self, url: str, title: str = "") -> str:
         try:
             normalized = self._normalize_url(url)
-            source = self._controller.add_feed(normalized, title.strip())
-            self.refreshFeed(source.id)
-            return self._ok(self._serialize_feed(source), "Feed aggiunto")
+
+            def done(
+                operation_id: str,
+                result: Any | None,
+                error: Exception | None,
+            ) -> None:
+                self._emit_command_result(
+                    operation_id,
+                    result,
+                    error,
+                    "Feed aggiunto",
+                    self._serialize_feed,
+                )
+
+            operation_id = self._controller.add_feed_async(
+                normalized,
+                title.strip(),
+                done,
+            )
+            return self._started(operation_id)
         except Exception as exc:
-            logger.warning("Aggiunta feed fallita: %s", exc)
+            logger.warning("Aggiunta feed non avviata: %s", exc)
             return self._error(exc)
 
     @Slot(str, result=str)
     def removeFeed(self, source_id: str) -> str:
         try:
-            self._controller.remove_feed(source_id)
-            return self._ok(message="Feed rimosso")
+            def done(
+                operation_id: str,
+                result: Any | None,
+                error: Exception | None,
+            ) -> None:
+                self._emit_command_result(
+                    operation_id,
+                    result,
+                    error,
+                    "Feed rimosso",
+                )
+
+            return self._started(
+                self._controller.remove_feed_async(source_id, done)
+            )
         except Exception as exc:
-            logger.warning("Rimozione feed fallita: %s", exc)
+            logger.warning("Rimozione feed non avviata: %s", exc)
             return self._error(exc)
 
-    @Slot(str, str, result=str)
-    def renameFeed(self, source_id: str, title: str) -> str:
+    @Slot(str, str, str, result=str)
+    def updateFeed(self, source_id: str, title: str, category: str) -> str:
         try:
-            source = self._controller.rename_feed(source_id, title)
-            return self._ok(self._serialize_feed(source), "Feed rinominato")
-        except Exception as exc:
-            return self._error(exc)
+            def done(
+                operation_id: str,
+                result: Any | None,
+                error: Exception | None,
+            ) -> None:
+                self._emit_command_result(
+                    operation_id,
+                    result,
+                    error,
+                    "Feed aggiornato",
+                    self._serialize_feed,
+                )
 
-    @Slot(str, str, result=str)
-    def setFeedCategory(self, source_id: str, category: str) -> str:
-        try:
-            source = self._controller.set_category(source_id, category)
-            return self._ok(self._serialize_feed(source), "Categoria aggiornata")
+            return self._started(
+                self._controller.update_feed_async(
+                    source_id,
+                    title,
+                    category,
+                    done,
+                )
+            )
         except Exception as exc:
+            logger.warning("Modifica feed non avviata: %s", exc)
             return self._error(exc)
 
     @Slot(str, str, result=str)
     def markRead(self, source_id: str, item_id: str) -> str:
         try:
-            self._controller.mark_read(source_id, item_id)
-            return self._ok(message="Articolo segnato come letto")
+            def done(
+                operation_id: str,
+                result: Any | None,
+                error: Exception | None,
+            ) -> None:
+                self._emit_command_result(
+                    operation_id,
+                    result,
+                    error,
+                    "Articolo segnato come letto",
+                )
+
+            return self._started(
+                self._controller.mark_read_async(source_id, item_id, done)
+            )
         except Exception as exc:
+            logger.warning("Aggiornamento stato lettura non avviato: %s", exc)
             return self._error(exc)
 
     @Slot(str, result=str)
@@ -255,19 +355,53 @@ class WebBridge(QObject):
                 "close_to_tray",
             }
             changes = {key: value for key, value in payload.items() if key in allowed}
-            updated = self._controller.update_settings(changes)
-            return self._ok(asdict(updated), "Impostazioni salvate")
+
+            def done(
+                operation_id: str,
+                result: Any | None,
+                error: Exception | None,
+            ) -> None:
+                self._emit_command_result(
+                    operation_id,
+                    result,
+                    error,
+                    "Impostazioni salvate",
+                    asdict,
+                )
+
+            return self._started(
+                self._controller.update_settings_async(changes, done)
+            )
         except Exception as exc:
-            logger.warning("Salvataggio impostazioni fallito: %s", exc)
+            logger.warning("Salvataggio impostazioni non avviato: %s", exc)
             return self._error(exc)
 
     @Slot(int, result=str)
     def setSidebarWidth(self, width: int) -> str:
         try:
             width = max(240, min(int(width), 480))
-            updated = self._controller.update_settings({"source_split_width": width})
-            return self._ok(updated.source_split_width)
+
+            def done(
+                operation_id: str,
+                result: Any | None,
+                error: Exception | None,
+            ) -> None:
+                self._emit_command_result(
+                    operation_id,
+                    result,
+                    error,
+                    "Larghezza sidebar salvata",
+                    lambda settings: settings.source_split_width,
+                )
+
+            return self._started(
+                self._controller.update_settings_async(
+                    {"source_split_width": width},
+                    done,
+                )
+            )
         except Exception as exc:
+            logger.warning("Salvataggio larghezza sidebar non avviato: %s", exc)
             return self._error(exc)
 
     @Slot(int, result=str)
