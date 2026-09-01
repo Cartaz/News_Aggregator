@@ -8,6 +8,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CORE_DIR = PROJECT_ROOT / "core"
 CORE_INIT = CORE_DIR / "__init__.py"
 EVENT_BUS = CORE_DIR / "event_bus.py"
+FEED_FETCHER = CORE_DIR / "feed_fetcher.py"
+FEED_DISCOVERY = CORE_DIR / "feed_discovery.py"
 BRIDGE = PROJECT_ROOT / "ui" / "bridge.py"
 WINDOW = PROJECT_ROOT / "ui" / "window.py"
 PRODUCTION_EVENT_FILES = (
@@ -55,6 +57,18 @@ def test_core_public_surface_exposes_owned_abstractions_not_compatibility_helper
     assert "category_ops" not in source
     assert "get_all_items" not in source
     assert "list_categories" not in source
+
+
+def test_feed_fetcher_delegates_site_specific_candidate_knowledge() -> None:
+    fetcher_source = FEED_FETCHER.read_text(encoding="utf-8")
+    discovery_source = FEED_DISCOVERY.read_text(encoding="utf-8")
+
+    assert "from core.feed_discovery import candidate_feed_urls" in fetcher_source
+    assert "candidate_feed_urls(url)" in fetcher_source
+    assert "bloomberg.com" not in fetcher_source.lower()
+    assert "economist.com" not in fetcher_source.lower()
+    assert "www.bloomberg.com" in discovery_source
+    assert "www.economist.com" in discovery_source
 
 
 def test_bridge_delegates_item_scope_rules_to_controller() -> None:
