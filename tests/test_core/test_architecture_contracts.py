@@ -90,5 +90,7 @@ def test_ui_layers_do_not_reach_into_settings_manager() -> None:
     window_source = WINDOW.read_text(encoding="utf-8")
     assert ".settings_manager" not in bridge_source
     assert ".settings_manager" not in window_source
-    assert "self._controller.update_settings(changes)" in bridge_source
-    assert "self._controller.persist_window_geometry" in window_source
+    assert "self._controller.update_settings_async(" in bridge_source
+    assert "self._controller.update_settings(changes)" not in bridge_source
+    assert "self._controller.persist_window_geometry_async(" in window_source
+    assert "self._controller.persist_window_geometry(" not in window_source
