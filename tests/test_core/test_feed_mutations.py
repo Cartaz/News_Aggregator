@@ -19,10 +19,14 @@ def manager(tmp_paths: Path) -> FeedManager:
 def test_update_feed_persists_title_and_category_once(manager: FeedManager) -> None:
     source = manager.add("https://example.com/feed.xml", title="Before")
 
-    with patch.object(manager, "save", wraps=manager.save) as save:
+    with patch.object(
+        manager,
+        "_persist_catalog",
+        wraps=manager._persist_catalog,
+    ) as persist:
         updated = manager.update_feed(source.id, "After", "Tech")
 
-    assert save.call_count == 1
+    assert persist.call_count == 1
     assert updated.title == "After"
     assert updated.category == "Tech"
 
@@ -32,13 +36,17 @@ def test_update_feed_persists_title_and_category_once(manager: FeedManager) -> N
     assert persisted.category == "Tech"
 
 
-def test_update_feed_rolls_back_both_fields_when_persistence_fails(
+def test_update_feed_keeps_canonical_state_when_persistence_fails(
     manager: FeedManager,
 ) -> None:
     source = manager.add("https://example.com/feed.xml", title="Before")
     manager.set_category(source.id, "Old")
 
-    with patch.object(manager, "save", side_effect=FeedError("disk failure")):
+    with patch.object(
+        manager,
+        "_persist_catalog",
+        side_effect=FeedError("disk failure"),
+    ):
         with pytest.raises(FeedError, match="disk failure"):
             manager.update_feed(source.id, "After", "New")
 
