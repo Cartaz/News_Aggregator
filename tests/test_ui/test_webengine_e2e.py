@@ -112,7 +112,8 @@ def test_refresh_progresses_one_segment_per_completed_feed(qtbot, backend, monke
     started = {first.id: threading.Event(), second.id: threading.Event()}
     release = {first.id: threading.Event(), second.id: threading.Event()}
 
-    def controlled_refresh(source_id: str) -> int:
+    def controlled_refresh(source_id: str, cancel_event=None) -> int:  # type: ignore[no-untyped-def]
+        assert cancel_event is not None
         started[source_id].set()
         if not release[source_id].wait(5):
             raise RuntimeError("test refresh release timeout")
@@ -138,7 +139,8 @@ def test_background_refresh_reloads_current_scope_without_reclick(qtbot, backend
     source = manager.add("https://example.com/feed.xml", title="Example")
     manager.set_category(source.id, "Tech")
 
-    def background_refresh(source_id: str) -> int:
+    def background_refresh(source_id: str, cancel_event=None) -> int:  # type: ignore[no-untyped-def]
+        assert cancel_event is not None
         seed_items(manager, source_id, [article(source_id, "Background News", 1)])
         return 1
 
@@ -210,7 +212,7 @@ def test_unread_filter_and_arrow_navigation(qtbot, backend) -> None:  # type: ig
 
 def test_add_edit_remove_and_error_feedback(qtbot, backend, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     manager, controller = backend
-    monkeypatch.setattr(manager, "refresh", lambda source_id: 0)
+    monkeypatch.setattr(manager, "refresh", lambda source_id, cancel_event=None: 0)
     view = open_app(qtbot, controller)
 
     js(qtbot, view, "document.getElementById('add-feed-btn').click();true")
