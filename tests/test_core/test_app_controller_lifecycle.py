@@ -52,7 +52,6 @@ class _CancellableFeedManager(_FeedManager):
 def _controller(
     manager: _FeedManager | None = None,
 ) -> tuple[AppController, _FeedManager]:
-    AppController._instance = None
     actual_manager = manager or _FeedManager()
     controller = AppController(actual_manager, _SettingsManager())  # type: ignore[arg-type]
     return controller, actual_manager
