@@ -7,7 +7,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from config.settings import Settings
+from config.settings import Settings, SettingsManager
 from core.app_controller import AppController
 
 
@@ -76,6 +76,35 @@ def test_settings_update_async_returns_before_persistence_finishes() -> None:
     assert settings.settings.show_unread_only is True
 
     controller.shutdown(wait_timeout=1.0)
+
+
+def test_settings_candidate_is_not_visible_before_persistence_commits(
+    tmp_paths: Path,
+) -> None:
+    manager = SettingsManager(tmp_paths / "settings-visibility.json")
+    started = threading.Event()
+    release = threading.Event()
+    original_persist = manager._persist
+
+    def delayed_persist(candidate: Settings) -> None:
+        started.set()
+        assert release.wait(timeout=2.0)
+        original_persist(candidate)
+
+    manager._persist = delayed_persist  # type: ignore[method-assign]
+    worker = threading.Thread(
+        target=lambda: manager.update({"show_unread_only": True}),
+        name="settings-visibility-test",
+    )
+    worker.start()
+
+    assert started.wait(timeout=1.0)
+    assert manager.settings.show_unread_only is False
+
+    release.set()
+    worker.join(timeout=1.0)
+    assert worker.is_alive() is False
+    assert manager.settings.show_unread_only is True
 
 
 def test_ui_persistence_paths_use_the_serial_command_boundary() -> None:
