@@ -184,7 +184,7 @@ function openSettingsModal() {
       font_scale_factor: Number(range.value),
     };
     save.disabled = true;
-    const response = await bridgeCall('saveSettings', JSON.stringify(payload));
+    const response = await bridgeCommand('saveSettings', JSON.stringify(payload));
     save.disabled = false;
     if (!response?.ok) { showToast('Impostazioni non salvate', response?.message || ''); return; }
     closeModal();
