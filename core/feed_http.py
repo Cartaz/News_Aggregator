@@ -211,7 +211,13 @@ def fetch_url_response(
         except FeedFetchError:
             raise
         except Exception as exc:
-            logger.debug("curl_cffi fallito: %s", exc)
+            logger.warning(
+                "Fallback curl_cffi fallito per %s: %s",
+                url,
+                exc,
+                exc_info=True,
+            )
+            last_error = FeedFetchError(url, f"curl_cffi: {exc}")
 
     _raise_if_cancelled(cancel_event)
     raise last_error or FeedFetchError(url, "errore sconosciuto")
