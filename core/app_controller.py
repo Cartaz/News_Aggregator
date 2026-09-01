@@ -17,7 +17,7 @@ from typing import Any
 from config.constants import AppMeta, FeedDefaults, Paths
 from config.settings import Settings, SettingsManager
 from core.diagnostics import read_log_tail
-from core.exceptions import FeedError
+from core.exceptions import FeedError, RefreshCancelledError
 from core.feed_manager import FeedManager
 from core.models import FeedItem, FeedSource
 from core.refresh_state import RefreshState
@@ -47,6 +47,7 @@ class AppController:
         self._feed_manager = feed_manager or FeedManager()
         self._settings_manager = settings_manager or SettingsManager()
         self._refresh_thread: threading.Thread | None = None
+        self._refresh_cancel_event: threading.Event | None = None
         self._refresh_lock = threading.RLock()
         self._refresh_state = RefreshState()
         self._auto_timer: threading.Timer | None = None
@@ -81,7 +82,11 @@ class AppController:
     def _on_feed_event(self, event_name: str, payload: dict[str, Any]) -> None:
         if event_name == "feed_refresh_started":
             self._on_feed_refresh_started(payload)
-        elif event_name in {"feed_refresh_completed", "feed_refresh_failed"}:
+        elif event_name in {
+            "feed_refresh_completed",
+            "feed_refresh_failed",
+            "feed_refresh_cancelled",
+        }:
             self._on_feed_refresh_finished(payload)
         self._emit_event(event_name, payload)
 
@@ -133,7 +138,12 @@ class AppController:
     def _emit_refresh_state(self) -> None:
         self._emit_event("refresh_state_changed", self.get_refresh_state())
 
-    def _begin_refresh(self, scope: str, total: int, source_id: str = "") -> bool:
+    def _begin_refresh(
+        self,
+        scope: str,
+        total: int,
+        source_id: str = "",
+    ) -> threading.Event | None:
         with self._refresh_lock:
             worker = self._refresh_thread
             if (
@@ -141,12 +151,37 @@ class AppController:
                 or self._refresh_state.active
                 or (worker is not None and worker.is_alive())
             ):
-                return False
+                return None
             if scope not in {"all", "feed"}:
                 raise ValueError(f"Scope refresh non valido: {scope}")
+            cancel_event = threading.Event()
+            self._refresh_cancel_event = cancel_event
             self._refresh_state.begin(scope, total, source_id)  # type: ignore[arg-type]
         self._emit_refresh_state()
-        return True
+        return cancel_event
+
+    def _install_refresh_worker(
+        self,
+        worker: threading.Thread,
+        cancel_event: threading.Event,
+    ) -> bool:
+        """Claim the worker only if the refresh operation is still current."""
+        with self._refresh_lock:
+            if (
+                self._shutting_down
+                or cancel_event.is_set()
+                or self._refresh_cancel_event is not cancel_event
+            ):
+                if self._refresh_cancel_event is cancel_event:
+                    self._refresh_cancel_event = None
+                self._refresh_state.finish()
+                installed = False
+            else:
+                self._refresh_thread = worker
+                installed = True
+        if not installed:
+            self._emit_refresh_state()
+        return installed
 
     def _set_refresh_progress(self, current: int, total: int) -> None:
         with self._refresh_lock:
@@ -167,6 +202,7 @@ class AppController:
         with self._refresh_lock:
             if self._refresh_thread is current:
                 self._refresh_thread = None
+                self._refresh_cancel_event = None
 
     def _on_feed_refresh_started(self, payload: dict[str, Any]) -> None:
         source_id = str(payload.get("source_id", ""))
@@ -258,17 +294,18 @@ class AppController:
         source_id: str,
         on_done: Callable[[bool, str], None] | None = None,
     ) -> bool:
-        if not self._begin_refresh("feed", 1, source_id):
+        cancel_event = self._begin_refresh("feed", 1, source_id)
+        if cancel_event is None:
             logger.warning("Refresh singolo non avviato: occupato o shutdown in corso")
             return False
         thread = threading.Thread(
             target=self._refresh_feed_worker,
-            args=(source_id, on_done),
+            args=(source_id, on_done, cancel_event),
             daemon=True,
             name=f"feed-refresh-{source_id[:8]}",
         )
-        with self._refresh_lock:
-            self._refresh_thread = thread
+        if not self._install_refresh_worker(thread, cancel_event):
+            return False
         thread.start()
         return True
 
@@ -278,17 +315,18 @@ class AppController:
         progress_cb: Callable[[str, int, int], None] | None = None,
     ) -> bool:
         total = sum(1 for source in self._feed_manager.get_all() if source.enabled)
-        if not self._begin_refresh("all", total):
+        cancel_event = self._begin_refresh("all", total)
+        if cancel_event is None:
             logger.warning("Refresh globale non avviato: occupato o shutdown in corso")
             return False
         thread = threading.Thread(
             target=self._refresh_all_worker,
-            args=(on_done, progress_cb),
+            args=(on_done, progress_cb, cancel_event),
             daemon=True,
             name="feed-refresh-all",
         )
-        with self._refresh_lock:
-            self._refresh_thread = thread
+        if not self._install_refresh_worker(thread, cancel_event):
+            return False
         thread.start()
         return True
 
@@ -332,14 +370,18 @@ class AppController:
         self,
         source_id: str,
         on_done: Callable[[bool, str], None] | None,
+        cancel_event: threading.Event,
     ) -> None:
         success = False
         message = ""
         try:
             try:
-                new_count = self._feed_manager.refresh(source_id)
+                new_count = self._feed_manager.refresh(source_id, cancel_event)
                 success = True
                 message = f"{new_count} nuovi articoli"
+            except RefreshCancelledError as exc:
+                message = str(exc)
+                logger.info("Refresh feed annullato: %s", source_id)
             except FeedError as exc:
                 message = str(exc)
                 logger.error("Refresh fallito: %s", exc)
@@ -361,6 +403,7 @@ class AppController:
         self,
         on_done: Callable[[dict[str, Any]], None] | None,
         progress_cb: Callable[[str, int, int], None] | None,
+        cancel_event: threading.Event,
     ) -> None:
         def tracked_progress(source_id: str, current: int, total: int) -> None:
             self._set_refresh_progress(current, total)
@@ -372,7 +415,10 @@ class AppController:
 
         try:
             try:
-                result = self._feed_manager.refresh_all(tracked_progress)
+                result = self._feed_manager.refresh_all(
+                    tracked_progress,
+                    cancel_event,
+                )
             except Exception as exc:
                 logger.error("Refresh tutti fallito: %s", exc, exc_info=True)
                 result = {"success": 0, "failed": 0, "errors": [str(exc)]}
@@ -386,25 +432,33 @@ class AppController:
         finally:
             self._release_refresh_worker()
 
-    def shutdown(self, wait_timeout: float = 2.0) -> None:
-        """Stop scheduling and wait a bounded time for the owned refresh worker."""
+    def shutdown(self, wait_timeout: float | None = None) -> None:
+        """Cancel scheduling and wait a bounded time for the owned refresh worker."""
         with self._refresh_lock:
             if self._shutting_down:
                 return
             self._shutting_down = True
             worker = self._refresh_thread
+            cancel_event = self._refresh_cancel_event
         self._stop_auto_refresh()
+        if cancel_event is not None:
+            cancel_event.set()
 
+        timeout = (
+            FeedDefaults.REQUEST_TIMEOUT_SECONDS + 2.0
+            if wait_timeout is None
+            else max(0.0, wait_timeout)
+        )
         if (
             worker is not None
             and worker.is_alive()
             and worker is not threading.current_thread()
         ):
-            worker.join(timeout=max(0.0, wait_timeout))
+            worker.join(timeout=timeout)
             if worker.is_alive():
                 logger.warning(
                     "Worker refresh ancora attivo dopo %.1f secondi di shutdown",
-                    wait_timeout,
+                    timeout,
                 )
         self._feed_manager.set_event_sink(None)
         with self._event_lock:

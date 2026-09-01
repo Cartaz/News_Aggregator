@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -10,7 +11,7 @@ import requests
 from requests.exceptions import RequestException, Timeout
 
 from config.constants import FeedDefaults
-from core.exceptions import FeedFetchError
+from core.exceptions import FeedFetchError, RefreshCancelledError
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,11 @@ class HttpFetchResult:
     etag: str = ""
     last_modified: str = ""
     not_modified: bool = False
+
+
+def _raise_if_cancelled(cancel_event: threading.Event | None) -> None:
+    if cancel_event is not None and cancel_event.is_set():
+        raise RefreshCancelledError()
 
 
 def _accept_encoding_value() -> str:
@@ -102,12 +108,16 @@ def fetch_url_response(
     *,
     etag: str = "",
     last_modified: str = "",
+    cancel_event: threading.Event | None = None,
 ) -> HttpFetchResult:
     """Scarica un URL restituendo contenuto e validator HTTP.
 
     Quando sono presenti validator, invia ``If-None-Match`` e/o
     ``If-Modified-Since``. Una risposta ``304 Not Modified`` è un risultato
     valido: ``not_modified`` sarà True e ``content`` resterà vuoto.
+
+    ``cancel_event`` non interrompe una richiesta già dentro la libreria HTTP,
+    ma impedisce fallback o richieste successive dopo una cancellazione.
     """
     actual_timeout: int = timeout or FeedDefaults.REQUEST_TIMEOUT_SECONDS
     conditional = _conditional_headers(etag, last_modified)
@@ -115,6 +125,7 @@ def fetch_url_response(
     request_headers.update(conditional)
     last_error: FeedFetchError | None = None
 
+    _raise_if_cancelled(cancel_event)
     try:
         logger.debug("GET %s (requests, timeout=%ds)", url, actual_timeout)
         response: requests.Response = requests.get(
@@ -156,6 +167,7 @@ def fetch_url_response(
     except RequestException as exc:
         last_error = FeedFetchError(url, str(exc))
 
+    _raise_if_cancelled(cancel_event)
     if _HAS_CURL_CFFI:
         try:
             logger.debug("GET %s (curl_cffi, chrome120)", url)
@@ -194,11 +206,14 @@ def fetch_url_response(
                 last_error = FeedFetchError(
                     url, f"curl_cffi: HTTP {cf_response.status_code}"
                 )
+        except RefreshCancelledError:
+            raise
         except FeedFetchError:
             raise
         except Exception as exc:
             logger.debug("curl_cffi fallito: %s", exc)
 
+    _raise_if_cancelled(cancel_event)
     raise last_error or FeedFetchError(url, "errore sconosciuto")
 
 

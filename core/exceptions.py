@@ -46,6 +46,13 @@ class FeedDuplicateError(FeedError):
         super().__init__(f"Feed già presente: {url}")
 
 
+class RefreshCancelledError(FeedError):
+    """Un refresh è stato annullato durante lo shutdown o prima del commit."""
+
+    def __init__(self) -> None:
+        super().__init__("Aggiornamento annullato")
+
+
 class UIError(AppError):
     """Errore generico del livello UI."""
 
@@ -59,5 +66,6 @@ __all__ = [
     "FeedFetchError",
     "FeedNotFoundError",
     "FeedDuplicateError",
+    "RefreshCancelledError",
     "UIError",
 ]

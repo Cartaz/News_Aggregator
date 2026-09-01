@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
 from config.constants import FeedDefaults
-from core.exceptions import FeedFetchError, FeedParseError
+from core.exceptions import FeedFetchError, FeedParseError, RefreshCancelledError
 from core.feed_http import HttpFetchResult, fetch_url_response
 from core.feed_link_extractor import extract_feed_links
 from core.feed_parser import parse_feed_bytes
@@ -55,6 +56,11 @@ class FeedFetchResult:
         yield self.title
         yield self.items
         yield self.resolved_url
+
+
+def _raise_if_cancelled(cancel_event: threading.Event | None) -> None:
+    if cancel_event is not None and cancel_event.is_set():
+        raise RefreshCancelledError()
 
 
 def _looks_like_xml(content: bytes) -> bool:
@@ -120,6 +126,7 @@ def fetch_and_parse_resolved(
     *,
     etag: str = "",
     last_modified: str = "",
+    cancel_event: threading.Event | None = None,
 ) -> FeedFetchResult:
     """Recupera un feed includendo URL risolto e validator HTTP.
 
@@ -129,15 +136,27 @@ def fetch_and_parse_resolved(
     """
     actual_timeout: int = timeout or FeedDefaults.REQUEST_TIMEOUT_SECONDS
 
+    _raise_if_cancelled(cancel_event)
     response: HttpFetchResult | None = None
     fetch_failed = False
     try:
-        response = fetch_url_response(
-            url,
-            actual_timeout,
-            etag=etag,
-            last_modified=last_modified,
-        )
+        if cancel_event is None:
+            response = fetch_url_response(
+                url,
+                actual_timeout,
+                etag=etag,
+                last_modified=last_modified,
+            )
+        else:
+            response = fetch_url_response(
+                url,
+                actual_timeout,
+                etag=etag,
+                last_modified=last_modified,
+                cancel_event=cancel_event,
+            )
+    except RefreshCancelledError:
+        raise
     except FeedFetchError as exc:
         logger.debug(
             "Fetch iniziale fallito per %s, provo path fallback: %s",
@@ -146,6 +165,7 @@ def fetch_and_parse_resolved(
         )
         fetch_failed = True
 
+    _raise_if_cancelled(cancel_event)
     if not fetch_failed and response is not None:
         if response.not_modified:
             return FeedFetchResult(
@@ -172,17 +192,28 @@ def fetch_and_parse_resolved(
                 url,
                 feed_urls[0],
             )
-            return _fetch_feed_recursive(feed_urls[0], source_id, actual_timeout)
+            return _fetch_feed_recursive(
+                feed_urls[0],
+                source_id,
+                actual_timeout,
+                cancel_event=cancel_event,
+            )
 
         if not _is_feed_url(url):
             for candidate in _guess_feed_paths(url):
+                _raise_if_cancelled(cancel_event)
                 logger.info("Auto-discovery fallback: provo path %s", candidate)
                 try:
                     result = _fetch_feed_recursive(
-                        candidate, source_id, actual_timeout
+                        candidate,
+                        source_id,
+                        actual_timeout,
+                        cancel_event=cancel_event,
                     )
                     logger.info("Auto-discovery: feed trovato a %s", candidate)
                     return result
+                except RefreshCancelledError:
+                    raise
                 except (FeedFetchError, FeedParseError) as exc:
                     logger.debug("Fallback path %s fallito: %s", candidate, exc)
 
@@ -195,19 +226,28 @@ def fetch_and_parse_resolved(
     if not _is_feed_url(url):
         last_exc: FeedFetchError | FeedParseError | None = None
         for candidate in _guess_feed_paths(url):
+            _raise_if_cancelled(cancel_event)
             logger.info(
                 "Auto-discovery fallback (fetch fallito): provo %s", candidate
             )
             try:
-                result = _fetch_feed_recursive(candidate, source_id, actual_timeout)
+                result = _fetch_feed_recursive(
+                    candidate,
+                    source_id,
+                    actual_timeout,
+                    cancel_event=cancel_event,
+                )
                 logger.info("Auto-discovery: feed trovato a %s", candidate)
                 return result
+            except RefreshCancelledError:
+                raise
             except (FeedFetchError, FeedParseError) as exc:
                 logger.debug("Fallback path %s fallito: %s", candidate, exc)
                 last_exc = exc
         if last_exc is not None:
             raise last_exc
 
+    _raise_if_cancelled(cancel_event)
     raise FeedFetchError(
         url,
         "URL principale non raggiungibile e nessun path fallback "
@@ -222,14 +262,26 @@ def _fetch_feed_recursive(
     *,
     etag: str = "",
     last_modified: str = "",
+    cancel_event: threading.Event | None = None,
 ) -> FeedFetchResult:
     """Scarica e analizza un URL che si presume essere un feed."""
-    response = fetch_url_response(
-        url,
-        timeout,
-        etag=etag,
-        last_modified=last_modified,
-    )
+    _raise_if_cancelled(cancel_event)
+    if cancel_event is None:
+        response = fetch_url_response(
+            url,
+            timeout,
+            etag=etag,
+            last_modified=last_modified,
+        )
+    else:
+        response = fetch_url_response(
+            url,
+            timeout,
+            etag=etag,
+            last_modified=last_modified,
+            cancel_event=cancel_event,
+        )
+    _raise_if_cancelled(cancel_event)
     if response.not_modified:
         return FeedFetchResult(
             title="",

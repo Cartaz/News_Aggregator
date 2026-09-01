@@ -6,6 +6,7 @@ import threading
 
 from config.settings import Settings
 from core.app_controller import AppController
+from core.exceptions import RefreshCancelledError
 
 
 class _SettingsManager:
@@ -26,18 +27,35 @@ class _FeedManager:
     def get_all(self):  # type: ignore[no-untyped-def]
         return []
 
-    def refresh(self, source_id: str) -> int:
+    def refresh(self, source_id: str, cancel_event=None) -> int:  # type: ignore[no-untyped-def]
         return 0
 
-    def refresh_all(self, progress_cb=None):  # type: ignore[no-untyped-def]
+    def refresh_all(self, progress_cb=None, cancel_event=None):  # type: ignore[no-untyped-def]
         return {"success": 0, "failed": 0, "errors": []}
 
 
-def _controller() -> tuple[AppController, _FeedManager]:
+class _CancellableFeedManager(_FeedManager):
+    def __init__(self) -> None:
+        super().__init__()
+        self.started = threading.Event()
+        self.cancel_seen = threading.Event()
+
+    def refresh(self, source_id: str, cancel_event=None) -> int:  # type: ignore[no-untyped-def]
+        assert cancel_event is not None
+        self.started.set()
+        if cancel_event.wait(timeout=1.0):
+            self.cancel_seen.set()
+            raise RefreshCancelledError()
+        return 0
+
+
+def _controller(
+    manager: _FeedManager | None = None,
+) -> tuple[AppController, _FeedManager]:
     AppController._instance = None
-    manager = _FeedManager()
-    controller = AppController(manager, _SettingsManager())  # type: ignore[arg-type]
-    return controller, manager
+    actual_manager = manager or _FeedManager()
+    controller = AppController(actual_manager, _SettingsManager())  # type: ignore[arg-type]
+    return controller, actual_manager
 
 
 def test_feed_events_flow_through_explicit_controller_listener() -> None:
@@ -69,6 +87,21 @@ def test_shutdown_is_idempotent() -> None:
 
     controller.shutdown(wait_timeout=0)
     controller.shutdown(wait_timeout=0)
+
+
+def test_shutdown_signals_running_refresh_cancellation() -> None:
+    manager = _CancellableFeedManager()
+    controller, _ = _controller(manager)
+
+    assert controller.refresh_feed_async("feed-a") is True
+    assert manager.started.wait(timeout=1.0)
+
+    controller.shutdown(wait_timeout=1.0)
+
+    assert manager.cancel_seen.is_set()
+    with controller._refresh_lock:
+        assert controller._refresh_thread is None
+        assert controller._refresh_cancel_event is None
 
 
 def test_worker_remains_owned_until_completion_callback_returns() -> None:
