@@ -31,7 +31,7 @@ def test_main_window_unread_badges_keep_neumorphic_capsule() -> None:
     css = STYLES_PATH.read_text(encoding="utf-8")
 
     assert ".count-badge { min-width: 24px; height: 23px;" in css
-    assert "border-radius: 10px;" in css
+    assert "border-radius: var(--radius-sm);" in css
     assert "background: var(--surface); box-shadow: var(--shadow-inset-small);" in css
     assert ".source-row.selected .count-badge { color: var(--accent); }" in css
 
