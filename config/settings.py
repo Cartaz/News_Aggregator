@@ -6,7 +6,7 @@ import json
 import logging
 import threading
 from collections.abc import Callable, Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Any
 
@@ -74,6 +74,26 @@ class SettingsManager:
             if cb not in self._callbacks:
                 self._callbacks.append(cb)
 
+    @staticmethod
+    def _candidate_from_raw(raw: Any) -> Settings:
+        """Build a current-schema candidate while tolerating obsolete keys."""
+        if not isinstance(raw, dict):
+            raise TypeError("Il file impostazioni deve contenere un oggetto JSON")
+
+        known_keys = {field.name for field in fields(Settings)}
+        unknown_keys = sorted(set(raw) - known_keys)
+        if unknown_keys:
+            logger.info(
+                "Ignoro chiavi impostazioni obsolete o sconosciute: %s",
+                ", ".join(unknown_keys),
+            )
+
+        candidate = Settings(
+            **{key: value for key, value in raw.items() if key in known_keys}
+        )
+        candidate.validate()
+        return candidate
+
     def load(self) -> Settings:
         """Load one validated candidate and publish it atomically in memory."""
         Paths.ensure_user_dirs()
@@ -82,9 +102,8 @@ class SettingsManager:
             logger.info("File impostazioni non trovato, uso default: %s", self._path)
         else:
             try:
-                raw: dict[str, Any] = json.loads(self._path.read_text(encoding="utf-8"))
-                candidate = Settings(**raw)
-                candidate.validate()
+                raw = json.loads(self._path.read_text(encoding="utf-8"))
+                candidate = self._candidate_from_raw(raw)
             except OSError as exc:
                 logger.warning("Impostazioni non leggibili, uso default: %s", exc)
                 candidate = Settings()
