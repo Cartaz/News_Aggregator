@@ -99,7 +99,7 @@ class UIConstraints:
 
     CARD_PADDING: int = 16
     CARD_MARGIN: int = 8
-    CARD_BORDER_RADIUS: int = 6
+    CARD_BORDER_RADIUS: int = 16
 
     MAX_GRID_COLUMNS: int = 3
     SHORTCUT_BADGE_FONT_SIZE: int = 10
