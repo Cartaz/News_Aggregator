@@ -52,7 +52,6 @@ class _BlockingFeedManager:
 
 
 def _controller(manager: _BlockingFeedManager) -> AppController:
-    AppController._instance = None
     return AppController(manager, _SettingsManager())  # type: ignore[arg-type]
 
 

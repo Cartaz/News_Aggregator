@@ -1,10 +1,9 @@
 """Estrazione link RSS/Atom da pagine HTML.
 
-Estratto da ``feed_fetcher.py`` per rispettare il limite di 300 righe
-per file (§5.1.3). Usa ``html.parser.HTMLParser`` della libreria
-standard per parsare i tag ``<link>`` e ``<a>`` in modo robusto,
-gestendo anche HTML malformato, attributi in ordine arbitrario,
-self-closing, virgolette miste, ecc.
+Usa ``html.parser.HTMLParser`` della libreria standard per parsare i tag
+``<link>`` e ``<a>`` in modo robusto, gestendo anche HTML malformato,
+attributi in ordine arbitrario, self-closing e virgolette miste. Il modulo
+mantiene la logica di estrazione separata dall'orchestrazione HTTP del fetcher.
 """
 
 from __future__ import annotations

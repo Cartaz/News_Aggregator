@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -30,10 +31,32 @@ def test_surface_and_accent_are_exact() -> None:
     assert "--text-muted: rgb(90, 90, 90);" in css
 
 
+def test_radius_hierarchy_is_the_only_non_circular_radius_system() -> None:
+    css = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (WEB_ROOT / "styles.css", WEB_ROOT / "log-viewer.css")
+    )
+    assert "--radius-xl: 28px;" in css
+    assert "--radius-lg: 22px;" in css
+    assert "--radius-md: 16px;" in css
+    assert "--radius-sm: 12px;" in css
+
+    allowed = {
+        "var(--radius-xl)",
+        "var(--radius-lg)",
+        "var(--radius-md)",
+        "var(--radius-sm)",
+        "50%",
+    }
+    declarations = re.findall(r"border-radius:\s*([^;]+);", css)
+    assert declarations
+    assert set(declarations) <= allowed
+
+
 def test_selected_article_uses_accent_and_inset_glow() -> None:
     css = (WEB_ROOT / "styles.css").read_text(encoding="utf-8")
     assert (
-        ".article-row.selected { border-radius: 13px; color: var(--accent); "
+        ".article-row.selected { border-radius: var(--radius-sm); color: var(--accent); "
         "box-shadow: var(--shadow-active-inset-glow); border-top-color: transparent; }"
     ) in css
 
@@ -100,14 +123,21 @@ def test_refresh_ui_uses_controller_snapshot_as_single_source() -> None:
     assert "setInterval" not in app_js
 
 
-def test_segmented_refresh_progress_is_visible() -> None:
+def test_segmented_refresh_progress_keeps_presentation_in_css() -> None:
     articles_js = (WEB_ROOT / "articles.js").read_text(encoding="utf-8")
+    css = (WEB_ROOT / "styles.css").read_text(encoding="utf-8")
 
     assert "function ensureRefreshSegments(total)" in articles_js
-    assert "rgba(255,102,0,.22)" in articles_js
-    assert "inset 0 0 0 1px rgba(255,102,0,.20)" in articles_js
-    assert "const done = index < completed;" in articles_js
-    assert "refreshState.current" in articles_js
+    assert "segment.className = 'refresh-segment';" in articles_js
+    assert "segment.classList.toggle('done', index < completed);" in articles_js
+    assert "fill.classList.toggle('single', total <= 1);" in articles_js
+    assert ".refresh-segment {" in css
+    assert ".refresh-segment.done {" in css
+    assert ".refresh-fill.single { gap: 0; }" in css
+    assert "segment.style" not in articles_js
+    assert "fill.style" not in articles_js
+    assert "track.style" not in articles_js
+    assert "rgba(255,102,0" not in articles_js
 
 
 def test_arrow_keys_navigate_filtered_articles_safely() -> None:

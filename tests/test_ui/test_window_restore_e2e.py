@@ -49,14 +49,10 @@ def wait_js(qtbot, view, script: str, expected: Any = True, timeout: int = 7000)
 
 @pytest.fixture
 def backend(tmp_paths):  # type: ignore[no-untyped-def]
-    AppController._instance = None
-    SettingsManager._instance = None
     manager = FeedManager(Paths.FEEDS_FILE)
     controller = AppController(manager, SettingsManager(Paths.SETTINGS_FILE))
     yield manager, controller
     controller.shutdown()
-    AppController._instance = None
-    SettingsManager._instance = None
 
 
 def article(source_id: str, title: str) -> FeedItem:

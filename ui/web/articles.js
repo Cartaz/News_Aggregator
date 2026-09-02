@@ -101,19 +101,8 @@ async function refreshCurrentFeed() {
 }
 
 function ensureRefreshSegments(total) {
-  const track = els['refresh-track'];
   const fill = els['refresh-fill'];
-
-  track.style.background = 'var(--surface)';
-  track.style.boxShadow = 'var(--shadow-inset-small), 0 0 0 1px rgba(255,102,0,.22), 0 0 8px rgba(255,102,0,.10)';
-
-  fill.style.width = '100%';
-  fill.style.height = '100%';
-  fill.style.display = 'flex';
-  fill.style.gap = total > 1 ? '2px' : '0';
-  fill.style.background = 'transparent';
-  fill.style.boxShadow = 'none';
-  fill.style.transition = 'none';
+  fill.classList.toggle('single', total <= 1);
 
   if (fill.dataset.total === String(total)) return;
   fill.dataset.total = String(total);
@@ -121,14 +110,8 @@ function ensureRefreshSegments(total) {
 
   for (let index = 0; index < total; index += 1) {
     const segment = document.createElement('span');
+    segment.className = 'refresh-segment';
     segment.setAttribute('aria-hidden', 'true');
-    segment.style.flex = '1 1 0';
-    segment.style.minWidth = '0';
-    segment.style.height = '100%';
-    segment.style.borderRadius = '3px';
-    segment.style.background = 'var(--surface)';
-    segment.style.boxShadow = 'inset 0 0 0 1px rgba(255,102,0,.20)';
-    segment.style.transition = 'background 180ms ease, box-shadow 180ms ease';
     fill.appendChild(segment);
   }
 }
@@ -144,11 +127,7 @@ function updateRefreshProgress(refreshState = state.snapshot?.refreshing) {
   ensureRefreshSegments(total);
 
   [...els['refresh-fill'].children].forEach((segment, index) => {
-    const done = index < completed;
-    segment.style.background = done ? 'var(--accent)' : 'var(--surface)';
-    segment.style.boxShadow = done
-      ? '0 0 7px rgba(255,102,0,.34)'
-      : 'inset 0 0 0 1px rgba(255,102,0,.20)';
+    segment.classList.toggle('done', index < completed);
   });
 
   const percent = total > 0 ? Math.round((completed / total) * 100) : 0;

@@ -7,15 +7,18 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CORE_DIR = PROJECT_ROOT / "core"
 CONFIG_DIR = PROJECT_ROOT / "config"
+TESTS_DIR = PROJECT_ROOT / "tests"
 CORE_INIT = CORE_DIR / "__init__.py"
 EVENT_BUS = CORE_DIR / "event_bus.py"
 FEED_FETCHER = CORE_DIR / "feed_fetcher.py"
 FEED_DISCOVERY = CORE_DIR / "feed_discovery.py"
 APP_CONTROLLER = CORE_DIR / "app_controller.py"
 SETTINGS = CONFIG_DIR / "settings.py"
+CONSTANTS = CONFIG_DIR / "constants.py"
 THEME_MIRROR = CONFIG_DIR / "theme.py"
 BRIDGE = PROJECT_ROOT / "ui" / "bridge.py"
 WINDOW = PROJECT_ROOT / "ui" / "window.py"
+DIALOGS = PROJECT_ROOT / "ui" / "web" / "dialogs.js"
 PRODUCTION_EVENT_FILES = (
     CORE_DIR / "feed_manager.py",
     APP_CONTROLLER,
@@ -68,6 +71,29 @@ def test_controller_and_settings_are_explicit_instances_not_singletons() -> None
         source = path.read_text(encoding="utf-8")
         assert "_instance" not in source
         assert "def __new__(" not in source
+
+
+def test_test_suite_does_not_simulate_removed_singletons() -> None:
+    offenders: list[str] = []
+    forbidden = (
+        "AppController._instance =",
+        "SettingsManager._instance =",
+    )
+    for path in TESTS_DIR.rglob("*.py"):
+        if path == Path(__file__):
+            continue
+        source = path.read_text(encoding="utf-8")
+        if any(token in source for token in forbidden):
+            offenders.append(str(path.relative_to(PROJECT_ROOT)))
+    assert offenders == []
+
+
+def test_refresh_interval_presets_are_presentation_only() -> None:
+    constants_source = CONSTANTS.read_text(encoding="utf-8")
+    dialogs_source = DIALOGS.read_text(encoding="utf-8")
+
+    assert "REFRESH_INTERVAL_OPTIONS_MIN" not in constants_source
+    assert "const intervals = [1, 5, 15, 30, 60, 120, 360];" in dialogs_source
 
 
 def test_web_css_is_the_only_cross_platform_theme_definition() -> None:
