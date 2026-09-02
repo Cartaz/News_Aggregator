@@ -30,8 +30,10 @@ WEB_ROOT = Path(__file__).resolve().parents[2] / "ui" / "web"
 
 def js(qtbot, view: QWebEngineView, script: str, timeout: int = 5000) -> Any:
     box: dict[str, Any] = {"done": False, "value": None}
+
     def done(value: Any) -> None:
         box.update(done=True, value=value)
+
     view.page().runJavaScript(script, done)
     qtbot.waitUntil(lambda: box["done"], timeout=timeout)
     return box["value"]
@@ -50,14 +52,10 @@ def wait_js(qtbot, view: QWebEngineView, script: str, expected: Any = True, time
 
 @pytest.fixture
 def backend(tmp_paths):  # type: ignore[no-untyped-def]
-    AppController._instance = None
-    SettingsManager._instance = None
     manager = FeedManager(Paths.FEEDS_FILE)
     controller = AppController(manager, SettingsManager(Paths.SETTINGS_FILE))
     yield manager, controller
     controller.shutdown()
-    AppController._instance = None
-    SettingsManager._instance = None
 
 
 def open_app(qtbot, controller: AppController) -> QWebEngineView:
@@ -128,6 +126,7 @@ def test_refresh_progresses_one_segment_per_completed_feed(qtbot, backend, monke
     release[first.id].set()
     wait_js(qtbot, view, "state.snapshot.refreshing.current", 1)
     assert js(qtbot, view, "document.getElementById('refresh-track').getAttribute('aria-valuenow')") == "1"
+    assert js(qtbot, view, "document.querySelectorAll('#refresh-fill .refresh-segment.done').length") == 1
     release[second.id].set()
     wait_js(qtbot, view, "state.snapshot.refreshing.active", False)
     wait_js(qtbot, view, "document.getElementById('refresh-all-btn').disabled", False)
@@ -162,7 +161,7 @@ def test_background_refresh_reloads_current_scope_without_reclick(qtbot, backend
     assert js(qtbot, view, f"getComputedStyle({badge}).color") == "rgb(255, 102, 0)"
     assert js(qtbot, view, f"getComputedStyle({badge}).backgroundColor") == "rgb(20, 20, 20)"
     assert js(qtbot, view, f"getComputedStyle({badge}).boxShadow") != "none"
-    assert js(qtbot, view, f"getComputedStyle({badge}).borderRadius") == "10px"
+    assert js(qtbot, view, f"getComputedStyle({badge}).borderRadius") == "12px"
     assert js(qtbot, view, f"getComputedStyle({badge}).height") == "23px"
 
 
