@@ -89,6 +89,37 @@ def test_corrupt_file_falls_back(tmp_paths: Path) -> None:
     assert manager.settings.refresh_interval_minutes == 1
 
 
+def test_unknown_old_keys_do_not_reset_valid_settings(tmp_paths: Path) -> None:
+    settings_path = tmp_paths / "config" / "news-aggregator" / "settings.json"
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(
+        json.dumps(
+            {
+                "refresh_interval_minutes": 30,
+                "show_unread_only": True,
+                "removed_legacy_option": "old-value",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    manager = SettingsManager()
+
+    assert manager.settings.refresh_interval_minutes == 30
+    assert manager.settings.show_unread_only is True
+    assert not hasattr(manager.settings, "removed_legacy_option")
+
+
+def test_non_object_json_falls_back_to_defaults(tmp_paths: Path) -> None:
+    settings_path = tmp_paths / "config" / "news-aggregator" / "settings.json"
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text("[]", encoding="utf-8")
+
+    manager = SettingsManager()
+
+    assert manager.settings.refresh_interval_minutes == 1
+
+
 def test_unreadable_file_falls_back_to_defaults(tmp_paths: Path) -> None:
     settings_path = tmp_paths / "config" / "news-aggregator" / "settings.json"
     settings_path.parent.mkdir(parents=True, exist_ok=True)
