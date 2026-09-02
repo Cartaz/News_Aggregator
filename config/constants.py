@@ -66,7 +66,6 @@ class FeedDefaults:
     """Valori predefiniti per il recupero e la gestione dei feed."""
 
     REFRESH_INTERVAL_SECONDS: int = 60  # 1 minuto
-    REFRESH_INTERVAL_OPTIONS_MIN: list[int] = [1, 5, 15, 30, 60, 120, 360]
     MAX_ITEMS_PER_FEED: int = 50
     REQUEST_TIMEOUT_SECONDS: int = 15
     # Numero massimo di feed aggiornati contemporaneamente. Un limite basso
