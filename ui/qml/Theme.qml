@@ -2,8 +2,14 @@ pragma Singleton
 import QtQuick
 
 QtObject {
-    readonly property string fontFamily: "Noto Sans"
-    property real fontScale: 1.0
+    readonly property var availableFontFamilies: Qt.fontFamilies()
+    readonly property string fontFamily: availableFontFamilies.indexOf("Inter") >= 0
+        ? "Inter"
+        : (availableFontFamilies.indexOf("Noto Sans") >= 0 ? "Noto Sans" : "sans-serif")
+
+    property real userFontScale: 1.0
+    property real viewportTextScale: 1.0
+    readonly property real fontScale: userFontScale * viewportTextScale
 
     readonly property color surface: "#141414"
     readonly property color accent: "#ff6600"
