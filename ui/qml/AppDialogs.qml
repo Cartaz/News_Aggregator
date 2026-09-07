@@ -13,8 +13,11 @@ Item {
     property bool settingsNotify: backend.preferences.notifyNewItems
     property bool settingsTray: backend.preferences.closeToTray
     property real settingsScale: backend.preferences.fontScaleFactor
+    property string settingsFont: backend.preferences.fontFamily
     property var modalReturnFocus: null
     signal toastRequested(string title, string message, bool error)
+
+    Component.onCompleted: Theme.userFontFamily = backend.preferences.fontFamily
 
     function showToast(title, message, error) { root.toastRequested(title, message, error) }
     function rememberFocus() {
@@ -53,12 +56,19 @@ Item {
         settingsNotify = backend.preferences.notifyNewItems
         settingsTray = backend.preferences.closeToTray
         settingsScale = backend.preferences.fontScaleFactor
+        settingsFont = backend.preferences.fontFamily
+        Theme.userFontFamily = settingsFont
         modalBusy = false; modalMode = "settings"
     }
     function openLog() {
         if (backend.diagnostics.load()) modalMode = "log"
     }
-    function closeDialog() { if (!modalBusy) finishDialog() }
+    function closeDialog() {
+        if (modalBusy) return
+        if (modalMode === "settings")
+            Theme.userFontFamily = backend.preferences.fontFamily
+        finishDialog()
+    }
 
     Connections {
         target: backend
@@ -81,6 +91,9 @@ Item {
 
     Connections {
         target: backend.preferences
+        function onChanged() {
+            Theme.userFontFamily = backend.preferences.fontFamily
+        }
         function onSaveFinished(ok, message) {
             if (root.modalMode !== "settings") return
             root.modalBusy = false
@@ -195,10 +208,35 @@ Item {
                     Item { width: 18; height: 1 }
                     NeuButton { width: 90; height: 34; label: "Apri log"; textSize: 11; onClicked: root.openLog() }
                 }
-                Item { width: 1; height: 8 }
+                Text { text: "Carattere UI"; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: Math.round(12 * Theme.fontScale); font.bold: true }
+                Grid {
+                    id: fontGrid
+                    width: parent.width
+                    height: 74
+                    columns: 5
+                    spacing: 6
+                    Repeater {
+                        model: Theme.fontChoices
+                        NeuButton {
+                            required property string modelData
+                            width: Math.floor((fontGrid.width - 24) / 5)
+                            height: 34
+                            cornerRadius: 12
+                            textSize: 10
+                            label: modelData
+                            accent: root.settingsFont === modelData
+                            onClicked: {
+                                root.settingsFont = modelData
+                                Theme.userFontFamily = modelData
+                            }
+                        }
+                    }
+                }
+                Text { width: parent.width; text: "I 10 caratteri sono scelti tra quelli realmente disponibili nel sistema. La selezione è applicata subito come anteprima."; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: Math.round(10 * Theme.fontScale); wrapMode: Text.WordWrap }
+                Item { width: 1; height: 4 }
                 Row { anchors.right: parent.right; spacing: 10
                     NeuButton { width: 110; height: 42; label: "Annulla"; cornerRadius: 14; textSize: 13; enabled: !root.modalBusy; onClicked: root.closeDialog() }
-                    NeuButton { width: 110; height: 42; label: root.modalBusy ? "Salvo…" : "Salva"; accent: true; cornerRadius: 14; textSize: 13; enabled: !root.modalBusy; onClicked: { root.modalBusy = true; backend.preferences.saveSettings(root.settingsInterval, root.settingsAutoRead, root.settingsNotify, root.settingsTray, root.settingsScale) } }
+                    NeuButton { width: 110; height: 42; label: root.modalBusy ? "Salvo…" : "Salva"; accent: true; cornerRadius: 14; textSize: 13; enabled: !root.modalBusy; onClicked: { root.modalBusy = true; backend.preferences.saveSettings(root.settingsInterval, root.settingsAutoRead, root.settingsNotify, root.settingsTray, root.settingsScale, root.settingsFont) } }
                 }
             }
         }

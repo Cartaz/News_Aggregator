@@ -46,12 +46,15 @@ Item {
     }
     Text {
         anchors.centerIn: parent
+        width: Math.max(0, parent.width - 12)
         y: tap.pressed ? 1 : 0
         text: root.label
         color: root.accent ? Theme.accent : (hover.hovered ? Theme.textPrimary : Theme.textSecondary)
         font.family: Theme.fontFamily
         font.pixelSize: Math.round(root.textSize * Theme.fontScale)
         font.weight: Font.DemiBold
+        horizontalAlignment: Text.AlignHCenter
+        elide: Text.ElideRight
         Behavior on color { ColorAnimation { duration: 110 } }
     }
     HoverHandler { id: hover; enabled: root.enabled }
