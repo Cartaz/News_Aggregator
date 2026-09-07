@@ -59,6 +59,9 @@ def test_qml_window_loads_and_exposes_virtualized_views(qtbot, backend) -> None:
         assert window.window.findChild(QObject, "sourceList") is not None
         assert window.window.findChild(QObject, "articleList") is not None
         assert window.window.findChild(QObject, "searchInput") is not None
+        dialogs = window.window.findChild(QObject, "appDialogs")
+        assert dialogs is not None
+        assert dialogs.property("backend") is not None
         assert ui.sources.rowCount() == 3
     finally:
         window.window.hide()
