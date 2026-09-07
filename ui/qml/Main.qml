@@ -13,6 +13,7 @@ Window {
     color: Theme.surface
     title: backend.appName
 
+    readonly property var appBackend: backend
     property real sidebarWidth: Math.max(240, Math.min(480, backend.preferences.sidebarWidth))
     property real sidebarDragStartWidth: sidebarWidth
 
@@ -384,8 +385,9 @@ Window {
 
     AppDialogs {
         id: dialogs
+        objectName: "appDialogs"
         anchors.fill: parent
-        backend: backend
+        backend: root.appBackend
         onToastRequested: function(title, message, error) { root.showToast(title, message, error) }
     }
 
