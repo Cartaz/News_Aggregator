@@ -50,6 +50,32 @@ def test_theme_tokens_match_dark_neumorphism_contract() -> None:
     assert "radiusSM: 12" in source
 
 
+def test_typography_prefers_legacy_inter_and_scales_with_window() -> None:
+    theme = THEME_QML.read_text(encoding="utf-8")
+    main = MAIN_QML.read_text(encoding="utf-8")
+    assert 'availableFontFamilies.indexOf("Inter")' in theme
+    assert "property real userFontScale" in theme
+    assert "property real viewportTextScale" in theme
+    assert "userFontScale * viewportTextScale" in theme
+    assert "function updateResponsiveTypography()" in main
+    assert "onWidthChanged: updateResponsiveTypography()" in main
+    assert "Theme.userFontScale = backend.preferences.fontScaleFactor" in main
+
+
+def test_accent_glow_is_centralized_and_restrained() -> None:
+    theme = THEME_QML.read_text(encoding="utf-8")
+    raised = (QML_ROOT / "RaisedSurface.qml").read_text(encoding="utf-8")
+    inset = (QML_ROOT / "InsetSurface.qml").read_text(encoding="utf-8")
+    button = (QML_ROOT / "NeuButton.qml").read_text(encoding="utf-8")
+    assert "accentGlow: Qt.rgba(1, 0.4, 0, 0.14)" in theme
+    assert "accentGlowSoft: Qt.rgba(1, 0.4, 0, 0.07)" in theme
+    assert "color: Theme.accentGlow" in raised
+    assert "color: Theme.accentGlowSoft" in raised
+    assert "color: Theme.accentGlow" in inset
+    assert "color: Theme.accentGlowSoft" in inset
+    assert "selected: root.accent && !tap.pressed" in button
+
+
 def test_main_lists_are_virtualized_and_reuse_delegates() -> None:
     source = MAIN_QML.read_text(encoding="utf-8")
     assert "model: backend.sources" in source
@@ -62,8 +88,22 @@ def test_selected_article_uses_one_shared_inset_highlight() -> None:
     source = MAIN_QML.read_text(encoding="utf-8")
     article_delegate = (QML_ROOT / "ArticleRow.qml").read_text(encoding="utf-8")
     assert "highlight: Item" in source
+    assert "selected: true" in source
     assert "InsetSurface" in source
     assert "ShaderEffect" not in article_delegate
+
+
+def test_responsive_workspace_has_named_panels_and_compact_widths() -> None:
+    source = MAIN_QML.read_text(encoding="utf-8")
+    assert "readonly property bool compactLayout" in source
+    assert "readonly property bool denseLayout" in source
+    assert 'objectName: "workspace"' in source
+    assert 'objectName: "contentArea"' in source
+    assert 'objectName: "articleColumns"' in source
+    assert 'objectName: "articleListPanel"' in source
+    assert 'objectName: "detailPanel"' in source
+    assert "Layout.minimumWidth: root.denseLayout ? 270" in source
+    assert "Layout.minimumWidth: root.denseLayout ? 300" in source
 
 
 def test_shader_is_precompiled_with_multibackend_qsb() -> None:

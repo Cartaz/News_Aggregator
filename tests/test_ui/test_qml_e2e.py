@@ -68,6 +68,44 @@ def test_qml_window_loads_and_exposes_virtualized_views(qtbot, backend) -> None:
         window.shutdown()
 
 
+def test_minimum_window_keeps_workspace_and_detail_inside_layout(qtbot, backend) -> None:  # type: ignore[no-untyped-def]
+    manager, controller, ui = backend
+    source = manager.add("https://example.com/feed.xml", title="Example")
+    seed_items(manager, source.id, [article(source.id, "Responsive article", 1)])
+    ui.sync()
+    ui.selectArticle(0)
+    window = QmlMainWindow(controller, ui)
+    try:
+        window.window.resize(900, 600)
+        window.show()
+        qtbot.waitUntil(window.window.isVisible, timeout=3000)
+
+        workspace = window.window.findChild(QObject, "workspace")
+        content = window.window.findChild(QObject, "contentArea")
+        columns = window.window.findChild(QObject, "articleColumns")
+        article_panel = window.window.findChild(QObject, "articleListPanel")
+        detail_panel = window.window.findChild(QObject, "detailPanel")
+        assert all(item is not None for item in (workspace, content, columns, article_panel, detail_panel))
+
+        def geometry_is_settled() -> bool:
+            assert workspace is not None
+            assert content is not None
+            assert columns is not None
+            assert article_panel is not None
+            assert detail_panel is not None
+            return (
+                float(content.property("x")) + float(content.property("width")) <= float(workspace.property("width")) + 1.0
+                and float(detail_panel.property("x")) + float(detail_panel.property("width")) <= float(columns.property("width")) + 1.0
+                and float(article_panel.property("width")) >= 269.0
+                and float(detail_panel.property("width")) >= 299.0
+            )
+
+        qtbot.waitUntil(geometry_is_settled, timeout=3000)
+    finally:
+        window.window.hide()
+        window.shutdown()
+
+
 def test_scope_filter_and_selection_are_backed_by_python_models(qtbot, backend) -> None:  # type: ignore[no-untyped-def]
     manager, _controller, ui = backend
     source = manager.add("https://example.com/feed.xml", title="Example")
