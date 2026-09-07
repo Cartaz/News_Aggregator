@@ -1,11 +1,7 @@
-"""Presentation layer for News Aggregator.
+"""Qt Quick/QML presentation layer for News Aggregator."""
 
-The desktop shell is implemented with Qt WebEngine while the application
-interface itself is native HTML/CSS/JavaScript. The business layer remains
-framework-agnostic in :mod:`core`.
-"""
-
-from ui.window import WebMainWindow
+from ui.controller import UiController
 from ui.tray import TrayIcon
+from ui.window import QmlMainWindow
 
-__all__ = ["WebMainWindow", "TrayIcon"]
+__all__ = ["QmlMainWindow", "TrayIcon", "UiController"]

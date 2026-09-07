@@ -1,115 +1,130 @@
-"""Desktop shell hosting the native HTML/CSS/JavaScript interface."""
+"""Native Qt Quick shell for the QML desktop interface."""
 
 from __future__ import annotations
 
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QTimer, QUrl
-from PySide6.QtGui import QColor, QCloseEvent, QDesktopServices, QIcon, QShowEvent
-from PySide6.QtWebChannel import QWebChannel
-from PySide6.QtWebEngineCore import QWebEnginePage
-from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtWidgets import QApplication, QMainWindow
+from PySide6.QtCore import QEvent, QObject, QTimer, QUrl
+from PySide6.QtGui import QCloseEvent, QIcon
+from PySide6.QtQml import QQmlApplicationEngine
+from PySide6.QtQuick import QQuickWindow
+from PySide6.QtWidgets import QApplication
 
 from config.constants import AppMeta, Paths, UIConstraints
 from core.app_controller import AppController
-from ui.bridge import WebBridge
-from ui.native_actions import open_external_url
+from ui.controller import UiController
 
 logger = logging.getLogger(__name__)
 
 
-class _AppPage(QWebEnginePage):
-    """Keep the application document local and send web links to the OS browser."""
+class QmlMainWindow(QObject):
+    """Own QML engine/window lifecycle without absorbing application rules."""
 
-    def acceptNavigationRequest(self, url: QUrl, nav_type, is_main_frame: bool) -> bool:  # type: ignore[no-untyped-def]
-        if url.scheme().lower() in {"http", "https"}:
-            QDesktopServices.openUrl(url)
-            return False
-        return super().acceptNavigationRequest(url, nav_type, is_main_frame)
-
-
-class WebMainWindow(QMainWindow):
-    """Thin Qt window; all application presentation lives in ``ui/web``."""
-
-    def __init__(self, controller: AppController) -> None:
-        super().__init__()
+    def __init__(
+        self,
+        controller: AppController,
+        ui_controller: UiController,
+        parent: QObject | None = None,
+    ) -> None:
+        super().__init__(parent)
         self._controller = controller
+        self.ui = ui_controller
         self._force_close = False
-        self.setWindowTitle(AppMeta.DISPLAY_NAME)
-        self.setMinimumSize(UIConstraints.WINDOW_MIN_WIDTH, UIConstraints.WINDOW_MIN_HEIGHT)
-        self.resize(controller.settings.window_width, controller.settings.window_height)
-        self.setStyleSheet("QMainWindow { background: rgb(20, 20, 20); }")
-        if Paths.APP_ICON.exists():
-            self.setWindowIcon(QIcon(str(Paths.APP_ICON)))
 
-        self.bridge = WebBridge(controller, open_external=open_external_url, parent=self)
-        self.bridge.requestQuit.connect(self.force_quit)
-        self.bridge.requestHide.connect(self.hide_to_tray)
+        qml_root = Path(__file__).resolve().parent / "qml"
+        shader_package = qml_root / "shaders" / "neumorphic_inset.frag.qsb"
+        if not shader_package.is_file():
+            raise RuntimeError(
+                "Shader QML non compilato. Esegui ./install.sh prima di avviare l'app."
+            )
 
-        self._ui_sync_timer = QTimer(self)
-        self._ui_sync_timer.setSingleShot(True)
-        self._ui_sync_timer.setInterval(80)
-        self._ui_sync_timer.timeout.connect(self.bridge.request_ui_sync)
-
-        self._view = QWebEngineView(self)
-        self._page = _AppPage(self._view)
-        self._page.setBackgroundColor(QColor(20, 20, 20))
-        self._view.setPage(self._page)
-        self._channel = QWebChannel(self._page)
-        self._channel.registerObject("backend", self.bridge)
-        self._page.setWebChannel(self._channel)
-        self.setCentralWidget(self._view)
-
-        web_root = Path(__file__).resolve().parent / "web"
-        self._view.load(QUrl.fromLocalFile(str(web_root / "index.html")))
-
-    def _persist_geometry(self) -> None:
-        operation_id = self._controller.persist_window_geometry_async(
-            self.width(),
-            self.height(),
+        self._engine = QQmlApplicationEngine(self)
+        self._engine.rootContext().setContextProperty("backend", self.ui)
+        self._engine.load(QUrl.fromLocalFile(str(qml_root / "Main.qml")))
+        roots = self._engine.rootObjects()
+        if not roots or not isinstance(roots[0], QQuickWindow):
+            raise RuntimeError("Main.qml non ha creato una finestra Qt Quick valida")
+        self._window: QQuickWindow = roots[0]
+        self._window.setTitle(AppMeta.DISPLAY_NAME)
+        self._window.setMinimumWidth(UIConstraints.WINDOW_MIN_WIDTH)
+        self._window.setMinimumHeight(UIConstraints.WINDOW_MIN_HEIGHT)
+        self._window.resize(
+            controller.settings.window_width,
+            controller.settings.window_height,
         )
-        if operation_id is None:
-            logger.warning("Salvataggio geometria finestra non accettato")
+        if Paths.APP_ICON.exists():
+            self._window.setIcon(QIcon(str(Paths.APP_ICON)))
 
-    def _schedule_ui_sync(self) -> None:
-        self._ui_sync_timer.start()
+        self._geometry_timer = QTimer(self)
+        self._geometry_timer.setSingleShot(True)
+        self._geometry_timer.setInterval(350)
+        self._geometry_timer.timeout.connect(self._persist_geometry)
+        self._window.installEventFilter(self)
 
-    def event(self, event: QEvent) -> bool:
-        handled = super().event(event)
-        if event.type() == QEvent.Type.WindowActivate and hasattr(self, "_ui_sync_timer"):
-            self._schedule_ui_sync()
-        return handled
+        self.ui.requestQuit.connect(self.force_quit)
+        self.ui.requestHide.connect(self.hide_to_tray)
 
-    def showEvent(self, event: QShowEvent) -> None:
-        super().showEvent(event)
-        self._schedule_ui_sync()
+    @property
+    def window(self) -> QQuickWindow:
+        return self._window
+
+    def show(self) -> None:
+        self._window.show()
 
     def restore_from_tray(self) -> None:
-        """Restore the window and explicitly resync its current web view."""
-        self.showNormal()
-        self.raise_()
-        self.activateWindow()
-        self._schedule_ui_sync()
+        self._window.showNormal()
+        self._window.raise_()
+        self._window.requestActivate()
+        self.ui.sync()
 
     def hide_to_tray(self) -> None:
         self._persist_geometry()
-        self.hide()
+        self._window.hide()
 
     def force_quit(self) -> None:
         self._force_close = True
         self._persist_geometry()
         QApplication.quit()
 
-    def closeEvent(self, event: QCloseEvent) -> None:
-        self._persist_geometry()
-        if self._controller.settings.close_to_tray and not self._force_close:
-            event.ignore()
-            self.hide()
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802 - Qt API
+        if watched is not self._window:
+            return super().eventFilter(watched, event)
+
+        event_type = event.type()
+        if event_type == QEvent.Type.Resize:
+            self._geometry_timer.start()
+        elif event_type in {QEvent.Type.Show, QEvent.Type.WindowActivate}:
+            self.ui.sync()
+        elif event_type == QEvent.Type.Close:
+            self._persist_geometry()
+            if self._controller.settings.close_to_tray and not self._force_close:
+                if isinstance(event, QCloseEvent):
+                    event.ignore()
+                self._window.hide()
+                return True
+            if isinstance(event, QCloseEvent):
+                event.accept()
+            QApplication.quit()
+        return super().eventFilter(watched, event)
+
+    def _persist_geometry(self) -> None:
+        if not hasattr(self, "_window"):
             return
-        event.accept()
-        QApplication.quit()
+        # Collapse the resize debounce and any explicit close/hide save into one
+        # persistence request for the latest geometry.
+        self._geometry_timer.stop()
+        operation_id = self._controller.persist_window_geometry_async(
+            self._window.width(),
+            self._window.height(),
+        )
+        if operation_id is None:
+            logger.debug("Persistenza geometria non accettata durante shutdown")
+
+    def shutdown(self) -> None:
+        """Release UI observers before the controller is shut down."""
+        self._geometry_timer.stop()
+        self.ui.shutdown()
 
 
-__all__ = ["WebMainWindow"]
+__all__ = ["QmlMainWindow"]
