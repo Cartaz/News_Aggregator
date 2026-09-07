@@ -25,10 +25,11 @@ QtObject {
     readonly property color insetDark: Qt.rgba(0, 0, 0, 0.60)
     readonly property color insetLight: Qt.rgba(0.294, 0.294, 0.294, 0.09)
 
-    readonly property color accentBorder: Qt.rgba(1, 0.4, 0, 0.88)
-    readonly property color accentGlow: Qt.rgba(1, 0.4, 0, 0.36)
-    readonly property color accentGlowSoft: Qt.rgba(1, 0.4, 0, 0.16)
-    readonly property color accentGlowStrong: Qt.rgba(1, 0.4, 0, 0.36)
+    // One restrained accent system for buttons, selections and focus.
+    readonly property color accentBorder: Qt.rgba(1, 0.4, 0, 0.42)
+    readonly property color accentGlow: Qt.rgba(1, 0.4, 0, 0.14)
+    readonly property color accentGlowSoft: Qt.rgba(1, 0.4, 0, 0.07)
+    readonly property color accentGlowStrong: Qt.rgba(1, 0.4, 0, 0.18)
     readonly property color accentLine: Qt.rgba(1, 0.4, 0, 0.22)
 
     readonly property int radiusXL: 28
