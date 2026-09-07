@@ -17,13 +17,16 @@ def test_default_settings(tmp_paths: Path) -> None:
     assert manager.settings.refresh_interval_minutes == 1
     assert manager.settings.max_items_per_feed == 50
     assert manager.settings.mark_read_on_select is True
+    assert manager.settings.font_family == "Inter"
 
 
 def test_save_and_load(tmp_paths: Path) -> None:
     manager = SettingsManager()
     manager.set("refresh_interval_minutes", 30)
+    manager.set("font_family", "Noto Sans")
     loaded = SettingsManager()
     assert loaded.settings.refresh_interval_minutes == 30
+    assert loaded.settings.font_family == "Noto Sans"
 
 
 def test_invalid_value_raises_without_mutating_canonical_state(tmp_paths: Path) -> None:
@@ -38,6 +41,10 @@ def test_invalid_value_raises_without_mutating_canonical_state(tmp_paths: Path) 
         manager.set("max_items_per_feed", 0)
     with pytest.raises(ConfigValidationError):
         manager.set("font_scale_factor", 5.0)
+    with pytest.raises(ConfigValidationError):
+        manager.set("font_family", "   ")
+
+    assert manager.settings.font_family == "Inter"
 
 
 def test_update_commits_multiple_values_together(tmp_paths: Path) -> None:
@@ -47,14 +54,17 @@ def test_update_commits_multiple_values_together(tmp_paths: Path) -> None:
         {
             "refresh_interval_minutes": 30,
             "show_unread_only": True,
+            "font_family": "DejaVu Sans",
         }
     )
 
     assert updated.refresh_interval_minutes == 30
     assert updated.show_unread_only is True
+    assert updated.font_family == "DejaVu Sans"
     persisted = json.loads(manager._path.read_text(encoding="utf-8"))
     assert persisted["refresh_interval_minutes"] == 30
     assert persisted["show_unread_only"] is True
+    assert persisted["font_family"] == "DejaVu Sans"
 
 
 def test_snapshot_is_detached_from_canonical_settings(tmp_paths: Path) -> None:
@@ -77,8 +87,10 @@ def test_invalid_key_raises(tmp_paths: Path) -> None:
 def test_reset(tmp_paths: Path) -> None:
     manager = SettingsManager()
     manager.set("refresh_interval_minutes", 30)
+    manager.set("font_family", "Noto Sans")
     manager.reset()
     assert manager.settings.refresh_interval_minutes == 1
+    assert manager.settings.font_family == "Inter"
 
 
 def test_corrupt_file_falls_back(tmp_paths: Path) -> None:
@@ -107,6 +119,7 @@ def test_unknown_old_keys_do_not_reset_valid_settings(tmp_paths: Path) -> None:
 
     assert manager.settings.refresh_interval_minutes == 30
     assert manager.settings.show_unread_only is True
+    assert manager.settings.font_family == "Inter"
     assert not hasattr(manager.settings, "removed_legacy_option")
 
 
