@@ -25,3 +25,6 @@ Thumbs.db
 *.tmp
 *.swp
 *~
+
+# Generated Qt Shader Baker packages
+ui/qml/shaders/*.qsb

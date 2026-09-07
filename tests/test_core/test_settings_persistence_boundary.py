@@ -109,19 +109,16 @@ def test_settings_candidate_is_not_visible_before_persistence_commits(
 
 def test_ui_persistence_paths_use_the_serial_command_boundary() -> None:
     root = Path(__file__).resolve().parents[2]
-    bridge = (root / "ui" / "bridge.py").read_text(encoding="utf-8")
+    preferences = (root / "ui" / "preferences.py").read_text(encoding="utf-8")
     window = (root / "ui" / "window.py").read_text(encoding="utf-8")
-    app_js = (root / "ui" / "web" / "app.js").read_text(encoding="utf-8")
-    dialogs_js = (root / "ui" / "web" / "dialogs.js").read_text(encoding="utf-8")
+    main_qml = (root / "ui" / "qml" / "Main.qml").read_text(encoding="utf-8")
+    dialogs_qml = (root / "ui" / "qml" / "AppDialogs.qml").read_text(encoding="utf-8")
 
-    assert "self._controller.update_settings_async(" in bridge
-    assert "self._controller.update_settings(changes)" not in bridge
+    assert "self._controller.update_settings_async(changes, done)" in preferences
+    assert "self._controller.update_settings(changes)" not in preferences
     assert "persist_window_geometry_async(" in window
     assert "persist_window_geometry(" not in window
 
-    assert "bridgeCommand('saveSettings'" in app_js
-    assert "bridgeCommand('setSidebarWidth'" in app_js
-    assert "bridgeCall('saveSettings'" not in app_js
-    assert "bridgeCall('setSidebarWidth'" not in app_js
-    assert "bridgeCommand('saveSettings'" in dialogs_js
-    assert "bridgeCall('saveSettings'" not in dialogs_js
+    assert "backend.preferences.setSidebarWidth" in main_qml
+    assert "backend.preferences.saveSettings" in dialogs_qml
+    assert "backend.preferences.setSidebarWidth" not in dialogs_qml

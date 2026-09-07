@@ -1,4 +1,4 @@
-"""Application entry point for News Aggregator."""
+"""Application composition root for News Aggregator."""
 
 from __future__ import annotations
 
@@ -7,25 +7,21 @@ import os
 import sys
 from logging.handlers import RotatingFileHandler
 
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWidgets import QApplication
 
 from config.constants import AppMeta, Paths
 from core.app_controller import AppController
+from ui.controller import UiController
+from ui.native_actions import open_external_url
 from ui.tray import TrayIcon
-from ui.window import WebMainWindow
+from ui.window import QmlMainWindow
 
 
 def setup_logging() -> None:
-    """Configure rotating application logging.
-
-    Production logs default to INFO. Set ``NEWS_AGGREGATOR_LOG_LEVEL=DEBUG``
-    when detailed networking and lifecycle diagnostics are needed.
-    """
     Paths.ensure_user_dirs()
     level_name = os.environ.get("NEWS_AGGREGATOR_LOG_LEVEL", "INFO").upper()
     level = getattr(logging, level_name, logging.INFO)
-
     formatter = logging.Formatter(
         "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
@@ -38,11 +34,9 @@ def setup_logging() -> None:
     )
     file_handler.setFormatter(formatter)
     file_handler.setLevel(level)
-
     console_handler = logging.StreamHandler(sys.stderr)
     console_handler.setFormatter(formatter)
     console_handler.setLevel(logging.WARNING)
-
     root = logging.getLogger()
     root.setLevel(level)
     if not root.handlers:
@@ -61,28 +55,31 @@ def main() -> int:
     app.setApplicationVersion(AppMeta.VERSION)
     app.setOrganizationName(AppMeta.AUTHOR)
     app.setQuitOnLastWindowClosed(False)
+    app.setFont(QFont("Noto Sans"))
     if Paths.APP_ICON.exists():
         app.setWindowIcon(QIcon(str(Paths.APP_ICON)))
 
     controller = AppController()
+    ui_controller = UiController(controller, open_external=open_external_url)
+    window: QmlMainWindow | None = None
     exit_code: int | None = None
     try:
         controller.start_auto_refresh()
-        window = WebMainWindow(controller)
+        window = QmlMainWindow(controller, ui_controller)
         tray = TrayIcon(window)
 
         tray.showWindowRequested.connect(window.restore_from_tray)
         tray.messageClicked.connect(window.restore_from_tray)
-        tray.refreshAllRequested.connect(window.bridge.refreshAll)
+        tray.refreshAllRequested.connect(ui_controller.refreshAll)
         tray.quitRequested.connect(window.force_quit)
-        window.bridge.unreadCountChanged.connect(tray.set_unread_count)
+        ui_controller.unreadCountChanged.connect(tray.set_unread_count)
 
         def on_new_items(count: int, source_title: str) -> None:
             tray.set_unread_count(controller.get_total_unread_count())
             if controller.settings.notify_new_items:
                 tray.notify_new_items(count, source_title)
 
-        window.bridge.newItemsDetected.connect(on_new_items)
+        ui_controller.newItemsDetected.connect(on_new_items)
         tray.set_unread_count(controller.get_total_unread_count())
         tray.show()
         window.show()
@@ -90,6 +87,10 @@ def main() -> int:
         exit_code = app.exec()
         return exit_code
     finally:
+        if window is not None:
+            window.shutdown()
+        else:
+            ui_controller.shutdown()
         controller.shutdown()
         if exit_code is None:
             logger.info("Shutdown completato durante avvio o event loop interrotto")
