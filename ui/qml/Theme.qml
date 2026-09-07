@@ -3,9 +3,56 @@ import QtQuick
 
 QtObject {
     readonly property var availableFontFamilies: Qt.fontFamilies()
-    readonly property string fontFamily: availableFontFamilies.indexOf("Inter") >= 0
-        ? "Inter"
-        : (availableFontFamilies.indexOf("Noto Sans") >= 0 ? "Noto Sans" : "sans-serif")
+    readonly property var preferredFontFamilies: [
+        "Inter",
+        "IBM Plex Sans",
+        "Source Sans 3",
+        "Fira Sans",
+        "Roboto",
+        "Ubuntu",
+        "Cantarell",
+        "Noto Sans",
+        "DejaVu Sans",
+        "Liberation Sans",
+        "Open Sans",
+        "Lato",
+        "Montserrat",
+        "Manrope",
+        "Poppins"
+    ]
+    readonly property var fontChoices: buildFontChoices()
+    property string userFontFamily: "Inter"
+    readonly property string fallbackFontFamily: availableFontFamilies.indexOf("Noto Sans") >= 0
+        ? "Noto Sans"
+        : (availableFontFamilies.length > 0 ? availableFontFamilies[0] : "sans-serif")
+    readonly property string fontFamily: availableFontFamilies.indexOf(userFontFamily) >= 0
+        ? userFontFamily
+        : fallbackFontFamily
+
+    function isUsefulUiFont(family) {
+        const lowered = family.toLowerCase()
+        return lowered.indexOf("mono") === -1
+            && lowered.indexOf("emoji") === -1
+            && lowered.indexOf("symbol") === -1
+            && lowered.indexOf("math") === -1
+            && lowered.indexOf("dingbat") === -1
+            && lowered.indexOf("icon") === -1
+    }
+
+    function buildFontChoices() {
+        const choices = []
+        for (let i = 0; i < preferredFontFamilies.length && choices.length < 10; ++i) {
+            const family = preferredFontFamilies[i]
+            if (availableFontFamilies.indexOf(family) >= 0 && choices.indexOf(family) < 0)
+                choices.push(family)
+        }
+        for (let i = 0; i < availableFontFamilies.length && choices.length < 10; ++i) {
+            const family = availableFontFamilies[i]
+            if (isUsefulUiFont(family) && choices.indexOf(family) < 0)
+                choices.push(family)
+        }
+        return choices.slice(0, 10)
+    }
 
     property real userFontScale: 1.0
     property real viewportTextScale: 1.0
@@ -25,12 +72,12 @@ QtObject {
     readonly property color insetDark: Qt.rgba(0, 0, 0, 0.60)
     readonly property color insetLight: Qt.rgba(0.294, 0.294, 0.294, 0.09)
 
-    // One restrained accent system for buttons, selections and focus.
-    readonly property color accentBorder: Qt.rgba(1, 0.4, 0, 0.42)
-    readonly property color accentGlow: Qt.rgba(1, 0.4, 0, 0.14)
-    readonly property color accentGlowSoft: Qt.rgba(1, 0.4, 0, 0.07)
-    readonly property color accentGlowStrong: Qt.rgba(1, 0.4, 0, 0.18)
-    readonly property color accentLine: Qt.rgba(1, 0.4, 0, 0.22)
+    // Accent remains visible as a state cue, but never becomes an opaque halo.
+    readonly property color accentBorder: Qt.rgba(1, 0.4, 0, 0.24)
+    readonly property color accentGlow: Qt.rgba(1, 0.4, 0, 0.075)
+    readonly property color accentGlowSoft: Qt.rgba(1, 0.4, 0, 0.035)
+    readonly property color accentGlowStrong: Qt.rgba(1, 0.4, 0, 0.10)
+    readonly property color accentLine: Qt.rgba(1, 0.4, 0, 0.16)
 
     readonly property int radiusXL: 28
     readonly property int radiusLG: 22
