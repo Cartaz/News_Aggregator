@@ -50,10 +50,12 @@ def test_theme_tokens_match_dark_neumorphism_contract() -> None:
     assert "radiusSM: 12" in source
 
 
-def test_typography_prefers_legacy_inter_and_scales_with_window() -> None:
+def test_typography_scales_with_window_and_supports_user_font_family() -> None:
     theme = THEME_QML.read_text(encoding="utf-8")
     main = MAIN_QML.read_text(encoding="utf-8")
-    assert 'availableFontFamilies.indexOf("Inter")' in theme
+    assert "property string userFontFamily" in theme
+    assert "readonly property var fontChoices: buildFontChoices()" in theme
+    assert "return choices.slice(0, 10)" in theme
     assert "property real userFontScale" in theme
     assert "property real viewportTextScale" in theme
     assert "userFontScale * viewportTextScale" in theme
@@ -62,13 +64,26 @@ def test_typography_prefers_legacy_inter_and_scales_with_window() -> None:
     assert "Theme.userFontScale = backend.preferences.fontScaleFactor" in main
 
 
-def test_accent_glow_is_centralized_and_restrained() -> None:
+def test_settings_font_picker_previews_and_persists_selection() -> None:
+    dialogs = APP_DIALOGS.read_text(encoding="utf-8")
+    preferences = PREFERENCES_PY.read_text(encoding="utf-8")
+    assert "property string settingsFont: backend.preferences.fontFamily" in dialogs
+    assert "model: Theme.fontChoices" in dialogs
+    assert "Theme.userFontFamily = modelData" in dialogs
+    assert "Theme.userFontFamily = backend.preferences.fontFamily" in dialogs
+    assert "root.settingsScale, root.settingsFont" in dialogs
+    assert "def fontFamily" in preferences
+    assert "font_family: str" in preferences
+
+
+def test_accent_glow_is_centralized_and_translucent() -> None:
     theme = THEME_QML.read_text(encoding="utf-8")
     raised = (QML_ROOT / "RaisedSurface.qml").read_text(encoding="utf-8")
     inset = (QML_ROOT / "InsetSurface.qml").read_text(encoding="utf-8")
     button = (QML_ROOT / "NeuButton.qml").read_text(encoding="utf-8")
-    assert "accentGlow: Qt.rgba(1, 0.4, 0, 0.14)" in theme
-    assert "accentGlowSoft: Qt.rgba(1, 0.4, 0, 0.07)" in theme
+    assert "accentBorder: Qt.rgba(1, 0.4, 0, 0.24)" in theme
+    assert "accentGlow: Qt.rgba(1, 0.4, 0, 0.075)" in theme
+    assert "accentGlowSoft: Qt.rgba(1, 0.4, 0, 0.035)" in theme
     assert "color: Theme.accentGlow" in raised
     assert "color: Theme.accentGlowSoft" in raised
     assert "color: Theme.accentGlow" in inset
