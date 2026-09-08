@@ -105,7 +105,13 @@ Window {
                             Layout.preferredHeight: 42
                             InsetSurface { anchors.fill: parent; cornerRadius: Theme.radiusMD; depth: 5.2 }
                             Rectangle { anchors.fill: parent; radius: Theme.radiusMD; color: "transparent"; border.width: 1; border.color: Theme.accentLine }
-                            Text { anchors.centerIn: parent; text: "▤"; color: Theme.accent; font.family: Theme.fontFamily; font.pixelSize: Math.round(18 * Theme.fontScale); font.bold: true }
+                            AccentIcon {
+                                anchors.centerIn: parent
+                                width: 22
+                                height: 22
+                                source: Qt.resolvedUrl("../../assets/icons/news-aggregator.svg")
+                                tint: Theme.accent
+                            }
                         }
 
                         Column {
@@ -344,7 +350,7 @@ Window {
                         Item {
                             id: articleListPanel
                             objectName: "articleListPanel"
-                            Layout.preferredWidth: Math.max(root.denseLayout ? 270 : (root.compactLayout ? 290 : 330), Math.min(root.compactLayout ? 330 : 430, articleColumns.width * (root.compactLayout ? 0.46 : 0.44)))
+                            Layout.preferredWidth: Math.max(root.denseLayout ? 270 : (root.compactLayout ? 290 : 330), Math.min(root.compactLayout ? 330 : 430, contentArea.width * (root.compactLayout ? 0.46 : 0.44)))
                             Layout.minimumWidth: root.denseLayout ? 270 : (root.compactLayout ? 290 : 330)
                             Layout.maximumWidth: root.compactLayout ? 340 : 460
                             Layout.fillHeight: true
@@ -409,7 +415,7 @@ Window {
 
                                 RowLayout {
                                     Layout.fillWidth: true
-                                    Text { Layout.maximumWidth: parent.width * 0.65; text: backend.selectedArticleSource; color: Theme.accent; font.family: Theme.fontFamily; font.pixelSize: Math.round(11 * Theme.fontScale); font.bold: true; elide: Text.ElideRight }
+                                    Text { Layout.maximumWidth: Math.max(120, detailPanel.width * 0.55); text: backend.selectedArticleSource; color: Theme.accent; font.family: Theme.fontFamily; font.pixelSize: Math.round(11 * Theme.fontScale); font.bold: true; elide: Text.ElideRight }
                                     Item { Layout.fillWidth: true }
                                     Text { text: backend.selectedArticleDate; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: Math.round(11 * Theme.fontScale) }
                                 }
