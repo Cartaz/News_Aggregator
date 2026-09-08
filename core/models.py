@@ -18,7 +18,7 @@ def _make_feed_id(url: str) -> str:
     return hashlib.sha1(url.encode("utf-8")).hexdigest()[:12]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class FeedItem:
     """Singolo articolo con identità stabile GUID/URL/fallback."""
 
@@ -64,7 +64,7 @@ class FeedItem:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class FeedSource:
     """Sorgente feed RSS/Atom aggiunta dall'utente."""
 
@@ -148,7 +148,7 @@ class FeedSource:
         return False
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class FeedCategory:
     name: str
 
