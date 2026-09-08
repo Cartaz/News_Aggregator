@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from enum import IntEnum
 from typing import Any
@@ -22,6 +22,7 @@ class SourceRowData:
     status: str = ""
     error: str = ""
     first_feed: bool = False
+    icon_source: str = ""
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,7 @@ class _SourceRole(IntEnum):
     Status = Kind + 5
     Error = Kind + 6
     FirstFeed = Kind + 7
+    IconSource = Kind + 8
 
 
 class SourceListModel(QAbstractListModel):
@@ -60,6 +62,7 @@ class SourceListModel(QAbstractListModel):
             int(_SourceRole.Status): b"status",
             int(_SourceRole.Error): b"error",
             int(_SourceRole.FirstFeed): b"firstFeed",
+            int(_SourceRole.IconSource): b"iconSource",
         }
 
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:  # noqa: N802
@@ -78,6 +81,7 @@ class SourceListModel(QAbstractListModel):
             int(_SourceRole.Status): row.status,
             int(_SourceRole.Error): row.error,
             int(_SourceRole.FirstFeed): row.first_feed,
+            int(_SourceRole.IconSource): row.icon_source,
         }
         return mapping.get(int(role))
 
@@ -85,6 +89,23 @@ class SourceListModel(QAbstractListModel):
         self.beginResetModel()
         self._rows = list(rows)
         self.endResetModel()
+
+    def set_icon_source(self, identifier: str, icon_source: str) -> bool:
+        """Update one feed icon without rebuilding navigation state."""
+        for row_index, row in enumerate(self._rows):
+            if row.kind != "feed" or row.identifier != identifier:
+                continue
+            if row.icon_source == icon_source:
+                return False
+            self._rows[row_index] = replace(row, icon_source=icon_source)
+            model_index = self.index(row_index, 0)
+            self.dataChanged.emit(
+                model_index,
+                model_index,
+                [int(_SourceRole.IconSource)],
+            )
+            return True
+        return False
 
     def row(self, index: int) -> SourceRowData | None:
         if 0 <= index < len(self._rows):
