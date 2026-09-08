@@ -15,6 +15,10 @@ def test_install_script_matches_documented_flow() -> None:
     assert 'pip install -r "${REQUIREMENTS_FILE}"' in script
     assert '"${QSB}" --qt6 -o "${SHADER_PACKAGE}" "${SHADER_SOURCE}"' in script
     assert 'grep -q "GLSL"' in script
+    assert "cantarell_available" in script
+    assert "ensure_cantarell" in script
+    assert "cantarell-fonts" in script
+    assert "fonts-cantarell" in script
     assert ".venv/bin/python main.py" in script
     assert ".local/share/applications" not in script
     assert "update-desktop-database" not in script
