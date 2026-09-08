@@ -50,30 +50,33 @@ def test_theme_tokens_match_dark_neumorphism_contract() -> None:
     assert "radiusSM: 12" in source
 
 
-def test_typography_scales_with_window_and_supports_user_font_family() -> None:
+def test_typography_scales_with_window_and_uses_cantarell() -> None:
     theme = THEME_QML.read_text(encoding="utf-8")
     main = MAIN_QML.read_text(encoding="utf-8")
-    assert "property string userFontFamily" in theme
-    assert "readonly property var fontChoices: buildFontChoices()" in theme
-    assert "return choices.slice(0, 10)" in theme
+    installer = INSTALLER.read_text(encoding="utf-8")
+    assert 'availableFontFamilies.indexOf("Cantarell")' in theme
+    assert '"Cantarell"' in theme
+    assert "fontChoices" not in theme
+    assert "userFontFamily" not in theme
     assert "property real userFontScale" in theme
     assert "property real viewportTextScale" in theme
     assert "userFontScale * viewportTextScale" in theme
     assert "function updateResponsiveTypography()" in main
     assert "onWidthChanged: updateResponsiveTypography()" in main
     assert "Theme.userFontScale = backend.preferences.fontScaleFactor" in main
+    assert "cantarell-fonts" in installer
+    assert "fonts-cantarell" in installer
 
 
-def test_settings_font_picker_previews_and_persists_selection() -> None:
+def test_settings_no_longer_expose_font_picker() -> None:
     dialogs = APP_DIALOGS.read_text(encoding="utf-8")
     preferences = PREFERENCES_PY.read_text(encoding="utf-8")
-    assert "property string settingsFont: backend.preferences.fontFamily" in dialogs
-    assert "model: Theme.fontChoices" in dialogs
-    assert "Theme.userFontFamily = modelData" in dialogs
-    assert "Theme.userFontFamily = backend.preferences.fontFamily" in dialogs
-    assert "root.settingsScale, root.settingsFont" in dialogs
-    assert "def fontFamily" in preferences
-    assert "font_family: str" in preferences
+    assert "Carattere UI" not in dialogs
+    assert "fontGrid" not in dialogs
+    assert "fontChoices" not in dialogs
+    assert "settingsFont" not in dialogs
+    assert "def fontFamily" not in preferences
+    assert "font_family" not in preferences
 
 
 def test_accent_glow_is_centralized_and_translucent() -> None:
