@@ -136,32 +136,6 @@ class SourceListModel(QAbstractListModel):
         self._rows = incoming
         self.endResetModel()
 
-    def set_selected(self, row_index: int) -> bool:
-        """Change navigation selection without resetting the source ListView."""
-        if not 0 <= row_index < len(self._rows):
-            return False
-        selected_indexes = [
-            index for index, row in enumerate(self._rows) if row.selected
-        ]
-        if selected_indexes == [row_index]:
-            return False
-
-        changed_indexes = set(selected_indexes)
-        changed_indexes.add(row_index)
-        for index in changed_indexes:
-            row = self._rows[index]
-            selected = index == row_index
-            if row.selected == selected:
-                continue
-            self._rows[index] = replace(row, selected=selected)
-            model_index = self.index(index, 0)
-            self.dataChanged.emit(
-                model_index,
-                model_index,
-                [int(_SourceRole.Selected)],
-            )
-        return True
-
     def set_icon_source(self, identifier: str, icon_source: str) -> bool:
         """Update one feed icon without rebuilding navigation state."""
         for row_index, row in enumerate(self._rows):
