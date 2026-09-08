@@ -91,9 +91,49 @@ class SourceListModel(QAbstractListModel):
             return row.icon_source
         return None
 
+    @staticmethod
+    def _identity(row: SourceRowData) -> tuple[str, str]:
+        return row.kind, row.identifier
+
+    @staticmethod
+    def _changed_roles(previous: SourceRowData, current: SourceRowData) -> list[int]:
+        roles: list[int] = []
+        if previous.title != current.title:
+            roles.append(int(_SourceRole.Title))
+        if previous.unread_count != current.unread_count:
+            roles.append(int(_SourceRole.UnreadCount))
+        if previous.selected != current.selected:
+            roles.append(int(_SourceRole.Selected))
+        if previous.status != current.status:
+            roles.append(int(_SourceRole.Status))
+        if previous.error != current.error:
+            roles.append(int(_SourceRole.Error))
+        if previous.first_feed != current.first_feed:
+            roles.append(int(_SourceRole.FirstFeed))
+        if previous.icon_source != current.icon_source:
+            roles.append(int(_SourceRole.IconSource))
+        return roles
+
     def replace(self, rows: list[SourceRowData]) -> None:
+        """Refresh rows without resetting QML delegates when structure is stable."""
+        incoming = list(rows)
+        if len(incoming) == len(self._rows) and all(
+            self._identity(previous) == self._identity(current)
+            for previous, current in zip(self._rows, incoming, strict=True)
+        ):
+            for row_index, current in enumerate(incoming):
+                previous = self._rows[row_index]
+                if previous == current:
+                    continue
+                roles = self._changed_roles(previous, current)
+                self._rows[row_index] = current
+                if roles:
+                    model_index = self.index(row_index, 0)
+                    self.dataChanged.emit(model_index, model_index, roles)
+            return
+
         self.beginResetModel()
-        self._rows = list(rows)
+        self._rows = incoming
         self.endResetModel()
 
     def set_icon_source(self, identifier: str, icon_source: str) -> bool:

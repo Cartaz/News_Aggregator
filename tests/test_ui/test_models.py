@@ -36,6 +36,48 @@ def test_source_model_exposes_stable_role_names() -> None:
     assert model.index_for("all", "") == 0
 
 
+def test_source_model_updates_stable_rows_without_resetting_qml_view() -> None:
+    model = SourceListModel()
+    model.replace(
+        [
+            SourceRowData("all", "", "Tutti gli articoli", 3, selected=True),
+            SourceRowData("feed", "feed-1", "Example", 2),
+        ]
+    )
+    resets: list[bool] = []
+    changes: list[bool] = []
+    model.modelReset.connect(lambda: resets.append(True))
+    model.dataChanged.connect(lambda *_args: changes.append(True))
+
+    model.replace(
+        [
+            SourceRowData("all", "", "Tutti gli articoli", 2),
+            SourceRowData("feed", "feed-1", "Example", 2, selected=True),
+        ]
+    )
+
+    assert resets == []
+    assert changes
+    assert model.row(0) is not None and model.row(0).selected is False
+    assert model.row(1) is not None and model.row(1).selected is True
+
+
+def test_source_model_resets_when_navigation_structure_changes() -> None:
+    model = SourceListModel()
+    model.replace([SourceRowData("all", "", "Tutti gli articoli", 0, selected=True)])
+    resets: list[bool] = []
+    model.modelReset.connect(lambda: resets.append(True))
+
+    model.replace(
+        [
+            SourceRowData("all", "", "Tutti gli articoli", 0, selected=True),
+            SourceRowData("feed", "feed-1", "Example", 0),
+        ]
+    )
+
+    assert resets == [True]
+
+
 def test_source_model_updates_one_cached_icon_without_resetting_rows() -> None:
     model = SourceListModel()
     model.replace(
