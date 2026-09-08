@@ -2,6 +2,7 @@
 
 The service owns network access, discovery rules, cache policy and worker
 lifecycle. QML only receives local file URLs and never performs HTTP access.
+Raster favicons are normalized into monochrome alpha masks before being cached.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from urllib.parse import urljoin, urlparse
 import requests
 
 from config.constants import FeedDefaults, Paths
+from core.icon_mask import normalize_raster_icon
 from core.models import FeedSource
 
 logger = logging.getLogger(__name__)
@@ -29,6 +31,7 @@ _HTML_LIMIT = 512 * 1024
 _ICON_LIMIT = 1024 * 1024
 _MISS_TTL_SECONDS = 6 * 60 * 60
 _MAX_DISCOVERED_CANDIDATES = 4
+_CACHE_SCHEMA = "accent-mask-v2"
 
 
 class _IconLinkParser(HTMLParser):
@@ -89,7 +92,8 @@ def _origin_for_source(source: FeedSource) -> str:
 
 
 def _cache_key(origin: str) -> str:
-    return hashlib.sha256(origin.casefold().encode("utf-8")).hexdigest()[:24]
+    material = f"{_CACHE_SCHEMA}:{origin.casefold()}"
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()[:24]
 
 
 def _icon_extension(data: bytes, url: str, content_type: str) -> str:
@@ -268,9 +272,23 @@ class SiteIconService:
                 )
                 if not extension:
                     continue
-                path = self._cache_dir / f"{key}{extension}"
-                temporary = self._cache_dir / f"{key}{extension}.tmp"
-                temporary.write_bytes(data)
+
+                if extension == ".svg":
+                    cached_data = data
+                    cached_extension = ".svg"
+                else:
+                    cached_data = normalize_raster_icon(data)
+                    cached_extension = ".png"
+                    if cached_data is None:
+                        logger.debug(
+                            "Favicon raster scartata dopo normalizzazione: %s",
+                            candidate,
+                        )
+                        continue
+
+                path = self._cache_dir / f"{key}{cached_extension}"
+                temporary = self._cache_dir / f"{key}{cached_extension}.tmp"
+                temporary.write_bytes(cached_data)
                 temporary.replace(path)
                 self._miss_path(key).unlink(missing_ok=True)
                 return path
@@ -290,11 +308,9 @@ class SiteIconService:
         return None
 
     def _cached_path(self, key: str) -> Path | None:
-        for path in self._cache_dir.glob(f"{key}.*"):
-            if (
-                path.suffix in {".svg", ".png", ".ico", ".gif", ".jpg", ".webp"}
-                and path.is_file()
-            ):
+        for extension in (".svg", ".png"):
+            path = self._cache_dir / f"{key}{extension}"
+            if path.is_file():
                 return path
         return None
 
