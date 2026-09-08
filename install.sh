@@ -15,6 +15,44 @@ cd "${PROJECT_DIR}"
 info() { printf '==> %s\n' "$1"; }
 fail() { printf 'Errore: %s\n' "$1" >&2; exit 1; }
 
+run_privileged() {
+    if [[ "${EUID}" -eq 0 ]]; then
+        "$@"
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo "$@"
+    else
+        fail "Cantarell non è installato e servono privilegi amministrativi per installarlo."
+    fi
+}
+
+cantarell_available() {
+    command -v fc-match >/dev/null 2>&1 \
+        && fc-match -f '%{family}\n' Cantarell 2>/dev/null | head -n 1 | grep -qi 'Cantarell'
+}
+
+ensure_cantarell() {
+    if cantarell_available; then
+        info "Font Cantarell disponibile"
+        return
+    fi
+
+    info "Installo il font UI Cantarell"
+    if command -v pacman >/dev/null 2>&1; then
+        run_privileged pacman -S --needed --noconfirm cantarell-fonts
+    elif command -v apt-get >/dev/null 2>&1; then
+        run_privileged apt-get install -y fonts-cantarell
+    elif command -v dnf >/dev/null 2>&1; then
+        run_privileged dnf install -y abattis-cantarell-vf-fonts
+    else
+        fail "Cantarell non trovato. Installa Cantarell con il package manager della distribuzione e rilancia ./install.sh."
+    fi
+
+    if command -v fc-cache >/dev/null 2>&1; then
+        fc-cache -f >/dev/null 2>&1 || true
+    fi
+    cantarell_available || fail "Cantarell risulta ancora non disponibile dopo l'installazione."
+}
+
 command -v "${PYTHON_BIN}" >/dev/null 2>&1 \
     || fail "Interprete ${PYTHON_BIN} non trovato. Installa Python 3.12 o superiore."
 
@@ -26,6 +64,8 @@ PY
 
 [[ -f "${REQUIREMENTS_FILE}" ]] || fail "requirements.txt non trovato in ${PROJECT_DIR}."
 [[ -f "${SHADER_SOURCE}" ]] || fail "Shader QML sorgente non trovato: ${SHADER_SOURCE}."
+
+ensure_cantarell
 
 if [[ -d "${VENV_DIR}" && ! -x "${VENV_PYTHON}" ]]; then
     info "Ambiente virtuale incompleto: ricreo .venv"
