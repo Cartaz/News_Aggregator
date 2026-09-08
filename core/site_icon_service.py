@@ -1,7 +1,7 @@
 """Background favicon discovery and cache for feed sources.
 
 The service owns network access, discovery rules, cache policy and worker
-lifecycle.  QML only receives local file URLs and never performs HTTP access.
+lifecycle. QML only receives local file URLs and never performs HTTP access.
 """
 
 from __future__ import annotations
@@ -28,6 +28,7 @@ IconReady = Callable[[str, Path | None], None]
 _HTML_LIMIT = 512 * 1024
 _ICON_LIMIT = 1024 * 1024
 _MISS_TTL_SECONDS = 6 * 60 * 60
+_MAX_DISCOVERED_CANDIDATES = 4
 
 
 class _IconLinkParser(HTMLParser):
@@ -35,12 +36,18 @@ class _IconLinkParser(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.candidates: list[tuple[int, str]] = []
 
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
         if tag.lower() != "link":
             return
         values = {key.lower(): (value or "") for key, value in attrs}
         rel_tokens = {token.lower() for token in values.get("rel", "").split()}
-        if not rel_tokens.intersection({"icon", "shortcut", "apple-touch-icon", "mask-icon"}):
+        if not rel_tokens.intersection(
+            {"icon", "shortcut", "apple-touch-icon", "mask-icon"}
+        ):
             return
         href = values.get("href", "").strip()
         if not href:
@@ -129,7 +136,7 @@ class SiteIconService:
         self,
         cache_dir: Path | None = None,
         *,
-        timeout: int = 8,
+        timeout: int = 5,
         max_workers: int = 2,
     ) -> None:
         self._cache_dir = cache_dir or Paths.SITE_ICON_CACHE_DIR
@@ -140,6 +147,7 @@ class SiteIconService:
             thread_name_prefix="site-icon",
         )
         self._lock = threading.RLock()
+        self._stop_event = threading.Event()
         self._pending: dict[str, list[tuple[str, IconReady]]] = {}
         self._closed = False
 
@@ -170,7 +178,9 @@ class SiteIconService:
                 return
             self._pending[key] = [(source.id, callback)]
             future = self._executor.submit(self._resolve_icon, key, origin)
-            future.add_done_callback(lambda done, cache_key=key: self._finish(cache_key, done))
+            future.add_done_callback(
+                lambda done, cache_key=key: self._finish(cache_key, done)
+            )
 
     def _finish(self, key: str, future: Future[Path | None]) -> None:
         try:
@@ -189,6 +199,8 @@ class SiteIconService:
                 logger.exception("Callback favicon fallita per %s", source_id)
 
     def _resolve_icon(self, key: str, origin: str) -> Path | None:
+        if self._stop_event.is_set():
+            return None
         candidates: list[str] = []
         try:
             response = requests.get(
@@ -206,16 +218,26 @@ class SiteIconService:
             parser = _IconLinkParser()
             parser.feed(html.decode(response.encoding or "utf-8", errors="replace"))
             base_url = response.url or origin + "/"
-            candidates.extend(
-                urljoin(base_url, href)
-                for _, href in sorted(parser.candidates, key=lambda entry: entry[0], reverse=True)
-            )
+            ranked = sorted(
+                parser.candidates,
+                key=lambda entry: entry[0],
+                reverse=True,
+            )[:_MAX_DISCOVERED_CANDIDATES]
+            candidates.extend(urljoin(base_url, href) for _, href in ranked)
         except Exception:
-            logger.debug("Homepage non disponibile per favicon: %s", origin, exc_info=True)
+            logger.debug(
+                "Homepage non disponibile per favicon: %s",
+                origin,
+                exc_info=True,
+            )
 
+        if self._stop_event.is_set():
+            return None
         candidates.append(origin + "/favicon.ico")
         seen: set[str] = set()
         for candidate in candidates:
+            if self._stop_event.is_set():
+                return None
             if candidate in seen:
                 continue
             seen.add(candidate)
@@ -228,7 +250,9 @@ class SiteIconService:
                     timeout=self._timeout,
                     headers={
                         "User-Agent": FeedDefaults.USER_AGENT,
-                        "Accept": "image/avif,image/webp,image/svg+xml,image/*,*/*;q=0.2",
+                        "Accept": (
+                            "image/avif,image/webp,image/svg+xml,image/*,*/*;q=0.2"
+                        ),
                     },
                     allow_redirects=True,
                     stream=True,
@@ -251,8 +275,14 @@ class SiteIconService:
                 self._miss_path(key).unlink(missing_ok=True)
                 return path
             except Exception:
-                logger.debug("Favicon candidata non utilizzabile: %s", candidate, exc_info=True)
+                logger.debug(
+                    "Favicon candidata non utilizzabile: %s",
+                    candidate,
+                    exc_info=True,
+                )
 
+        if self._stop_event.is_set():
+            return None
         try:
             self._miss_path(key).touch()
         except OSError:
@@ -261,7 +291,10 @@ class SiteIconService:
 
     def _cached_path(self, key: str) -> Path | None:
         for path in self._cache_dir.glob(f"{key}.*"):
-            if path.suffix in {".svg", ".png", ".ico", ".gif", ".jpg", ".webp"} and path.is_file():
+            if (
+                path.suffix in {".svg", ".png", ".ico", ".gif", ".jpg", ".webp"}
+                and path.is_file()
+            ):
                 return path
         return None
 
@@ -280,6 +313,7 @@ class SiteIconService:
             if self._closed:
                 return
             self._closed = True
+            self._stop_event.set()
             self._pending.clear()
         self._executor.shutdown(wait=False, cancel_futures=True)
 
