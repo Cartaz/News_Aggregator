@@ -8,13 +8,13 @@ ROOT = Path(__file__).resolve().parents[2]
 QML = ROOT / "ui" / "qml"
 
 
-def test_accent_icon_component_colorizes_without_extra_shadow() -> None:
+def test_accent_icon_component_colorizes_without_desaturation_or_shadow() -> None:
     source = (QML / "AccentIcon.qml").read_text(encoding="utf-8")
     assert "import QtQuick.Effects" in source
     assert "MultiEffect" in source
-    assert "saturation: -1.0" in source
     assert "colorization: 1.0" in source
     assert "colorizationColor: root.tint" in source
+    assert "saturation:" not in source
     assert "shadowEnabled" not in source
 
 
