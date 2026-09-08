@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
@@ -12,6 +13,7 @@ from PySide6.QtCore import QObject, Property, Qt, Signal, Slot
 from config.constants import AppMeta
 from core.app_controller import AppController
 from core.models import FeedItem, FeedSource
+from core.site_icon_service import SiteIconService
 from ui.diagnostics import DiagnosticsAdapter
 from ui.models import ArticleListModel, SourceListModel, SourceRowData
 from ui.preferences import PreferencesAdapter
@@ -39,6 +41,7 @@ class UiController(QObject):
 
     _eventRelay = Signal(str, object)
     _commandRelay = Signal(str, bool, str, str)
+    _siteIconRelay = Signal(str, str)
 
     def __init__(
         self,
@@ -54,6 +57,7 @@ class UiController(QObject):
         self._articles = ArticleListModel(self)
         self._preferences = PreferencesAdapter(controller, self)
         self._diagnostics = DiagnosticsAdapter(controller, self)
+        self._site_icons = SiteIconService()
         self._scope_kind = "all"
         self._scope_id = ""
         self._scope_title = "Tutti gli articoli"
@@ -68,6 +72,10 @@ class UiController(QObject):
 
         self._eventRelay.connect(self._deliver_event, Qt.ConnectionType.QueuedConnection)
         self._commandRelay.connect(self._deliver_command, Qt.ConnectionType.QueuedConnection)
+        self._siteIconRelay.connect(
+            self._deliver_site_icon,
+            Qt.ConnectionType.QueuedConnection,
+        )
         controller.register_event_listener(self._relay_controller_event)
         self.sync()
 
@@ -276,6 +284,8 @@ class UiController(QObject):
                     ),
                 )
             )
+
+        missing_icons: list[FeedSource] = []
         for index, feed in enumerate(feeds):
             status = "Mai aggiornato"
             if feed.last_updated is not None:
@@ -283,6 +293,9 @@ class UiController(QObject):
                     "Aggiornato "
                     + feed.last_updated.astimezone().strftime("%d/%m %H:%M")
                 )
+            cached_icon = self._site_icons.cached_icon_for(feed)
+            if cached_icon is None:
+                missing_icons.append(feed)
             rows.append(
                 SourceRowData(
                     kind="feed",
@@ -295,9 +308,13 @@ class UiController(QObject):
                     status=status,
                     error=feed.last_error,
                     first_feed=index == 0,
+                    icon_source=cached_icon.as_uri() if cached_icon else "",
                 )
             )
         self._sources.replace(rows)
+        for feed in missing_icons:
+            self._site_icons.request_icon(feed, self._site_icon_ready)
+
         selected = self._sources.index_for(self._scope_kind, self._scope_id)
         if selected < 0:
             self._scope_kind = "all"
@@ -305,6 +322,16 @@ class UiController(QObject):
             self._scope_title = "Tutti gli articoli"
             selected = 0
         self._selected_source_row = selected
+
+    def _site_icon_ready(self, source_id: str, path: Path | None) -> None:
+        if path is not None:
+            self._siteIconRelay.emit(source_id, path.as_uri())
+
+    @Slot(str, str)
+    def _deliver_site_icon(self, source_id: str, icon_source: str) -> None:
+        if self._shutdown or not icon_source:
+            return
+        self._sources.set_icon_source(source_id, icon_source)
 
     def _sync_navigation(self) -> None:
         """Refresh only source navigation/counts after one feed-level event."""
@@ -670,6 +697,7 @@ class UiController(QObject):
         if self._shutdown:
             return
         self._shutdown = True
+        self._site_icons.shutdown()
         self._controller.unregister_event_listener(self._relay_controller_event)
 
 

@@ -21,8 +21,20 @@ from ui.controller import UiController
 from ui.window import QmlMainWindow
 
 
+class _NoopSiteIcons:
+    def cached_icon_for(self, _source):  # type: ignore[no-untyped-def]
+        return None
+
+    def request_icon(self, _source, _callback) -> None:  # type: ignore[no-untyped-def]
+        return None
+
+    def shutdown(self) -> None:
+        return None
+
+
 @pytest.fixture
-def backend(tmp_paths):  # type: ignore[no-untyped-def]
+def backend(tmp_paths, monkeypatch):  # type: ignore[no-untyped-def]
+    monkeypatch.setattr("ui.controller.SiteIconService", _NoopSiteIcons)
     manager = FeedManager(Paths.FEEDS_FILE)
     controller = AppController(manager, SettingsManager(Paths.SETTINGS_FILE))
     ui = UiController(controller, open_external=lambda _url: (True, "Link aperto"))

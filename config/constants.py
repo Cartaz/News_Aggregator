@@ -42,6 +42,7 @@ class Paths:
     APP_CONFIG_DIR: Path = CONFIG_HOME / AppMeta.NAME
     APP_DATA_DIR: Path = DATA_HOME / AppMeta.NAME
     APP_STATE_DIR: Path = STATE_HOME / AppMeta.NAME
+    SITE_ICON_CACHE_DIR: Path = APP_DATA_DIR / "site-icons"
 
     SETTINGS_FILE: Path = APP_CONFIG_DIR / "settings.json"
     FEEDS_FILE: Path = APP_DATA_DIR / "feeds.json"
@@ -58,6 +59,7 @@ class Paths:
             cls.APP_CONFIG_DIR,
             cls.APP_DATA_DIR,
             cls.APP_STATE_DIR,
+            cls.SITE_ICON_CACHE_DIR,
         ):
             path.mkdir(parents=True, exist_ok=True)
 
