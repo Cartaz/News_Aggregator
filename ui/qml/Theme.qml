@@ -3,56 +3,11 @@ import QtQuick
 
 QtObject {
     readonly property var availableFontFamilies: Qt.fontFamilies()
-    readonly property var preferredFontFamilies: [
-        "Inter",
-        "IBM Plex Sans",
-        "Source Sans 3",
-        "Fira Sans",
-        "Roboto",
-        "Ubuntu",
-        "Cantarell",
-        "Noto Sans",
-        "DejaVu Sans",
-        "Liberation Sans",
-        "Open Sans",
-        "Lato",
-        "Montserrat",
-        "Manrope",
-        "Poppins"
-    ]
-    readonly property var fontChoices: buildFontChoices()
-    property string userFontFamily: "Inter"
-    readonly property string fallbackFontFamily: availableFontFamilies.indexOf("Noto Sans") >= 0
-        ? "Noto Sans"
-        : (availableFontFamilies.length > 0 ? availableFontFamilies[0] : "sans-serif")
-    readonly property string fontFamily: availableFontFamilies.indexOf(userFontFamily) >= 0
-        ? userFontFamily
-        : fallbackFontFamily
-
-    function isUsefulUiFont(family) {
-        const lowered = family.toLowerCase()
-        return lowered.indexOf("mono") === -1
-            && lowered.indexOf("emoji") === -1
-            && lowered.indexOf("symbol") === -1
-            && lowered.indexOf("math") === -1
-            && lowered.indexOf("dingbat") === -1
-            && lowered.indexOf("icon") === -1
-    }
-
-    function buildFontChoices() {
-        const choices = []
-        for (let i = 0; i < preferredFontFamilies.length && choices.length < 10; ++i) {
-            const family = preferredFontFamilies[i]
-            if (availableFontFamilies.indexOf(family) >= 0 && choices.indexOf(family) < 0)
-                choices.push(family)
-        }
-        for (let i = 0; i < availableFontFamilies.length && choices.length < 10; ++i) {
-            const family = availableFontFamilies[i]
-            if (isUsefulUiFont(family) && choices.indexOf(family) < 0)
-                choices.push(family)
-        }
-        return choices.slice(0, 10)
-    }
+    readonly property string fontFamily: availableFontFamilies.indexOf("Cantarell") >= 0
+        ? "Cantarell"
+        : (availableFontFamilies.indexOf("Noto Sans") >= 0
+            ? "Noto Sans"
+            : (availableFontFamilies.length > 0 ? availableFontFamilies[0] : "sans-serif"))
 
     property real userFontScale: 1.0
     property real viewportTextScale: 1.0
