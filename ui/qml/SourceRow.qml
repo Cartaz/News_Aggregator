@@ -9,6 +9,7 @@ Item {
     required property int unreadCount
     required property bool selected
     required property bool firstFeed
+    required property string iconSource
     required property int index
     signal clicked()
     implicitHeight: 43
@@ -48,11 +49,25 @@ Item {
         depth: 6.0
         visible: root.selected
     }
+
+    AccentIcon {
+        x: 11
+        width: 16
+        height: 16
+        anchors.verticalCenter: parent.verticalCenter
+        source: root.kind === "all"
+            ? Qt.resolvedUrl("../../assets/icons/news-aggregator.svg")
+            : root.iconSource
+        visible: root.kind === "all" || (root.kind === "feed" && root.iconSource.length > 0)
+        tint: Theme.accent
+        iconOpacity: root.selected ? 1.0 : 0.72
+    }
     Text {
         x: 12
         anchors.verticalCenter: parent.verticalCenter
-        text: root.kind === "all" ? "▤" : (root.kind === "category" ? "◇" : "▧")
-        color: root.selected ? Theme.accent : Theme.textSecondary
+        visible: root.kind === "category" || (root.kind === "feed" && root.iconSource.length === 0)
+        text: root.kind === "category" ? "◇" : "▧"
+        color: root.kind === "feed" ? Qt.rgba(1, 0.4, 0, root.selected ? 1.0 : 0.65) : (root.selected ? Theme.accent : Theme.textSecondary)
         font.family: Theme.fontFamily
         font.pixelSize: Math.round((root.kind === "feed" ? 14 : 12) * Theme.fontScale)
     }
