@@ -30,10 +30,26 @@ def test_source_model_exposes_stable_role_names() -> None:
     model.replace([SourceRowData("all", "", "Tutti gli articoli", 3, selected=True)])
     assert set(model.roleNames().values()) == {
         b"kind", b"identifier", b"title", b"unreadCount", b"selected",
-        b"status", b"error", b"firstFeed",
+        b"status", b"error", b"firstFeed", b"iconSource",
     }
     assert model.rowCount() == 1
     assert model.index_for("all", "") == 0
+
+
+def test_source_model_updates_one_cached_icon_without_resetting_rows() -> None:
+    model = SourceListModel()
+    model.replace(
+        [
+            SourceRowData("all", "", "Tutti gli articoli", 0),
+            SourceRowData("feed", "feed-1", "Example", 1),
+        ]
+    )
+
+    assert model.set_icon_source("feed-1", "file:///tmp/example.svg") is True
+    assert model.row(1) is not None
+    assert model.row(1).icon_source == "file:///tmp/example.svg"
+    assert model.set_icon_source("feed-1", "file:///tmp/example.svg") is False
+    assert model.set_icon_source("missing", "file:///tmp/missing.svg") is False
 
 
 def test_article_model_filters_without_duplicating_canonical_state() -> None:
