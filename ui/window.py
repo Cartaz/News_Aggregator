@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QApplication
 
 from config.constants import AppMeta, Paths, UIConstraints
 from core.app_controller import AppController
+from core.native_memory import trim_process_memory
 from ui.controller import UiController
 
 logger = logging.getLogger(__name__)
@@ -60,6 +61,12 @@ class QmlMainWindow(QObject):
         self._geometry_timer.setSingleShot(True)
         self._geometry_timer.setInterval(350)
         self._geometry_timer.timeout.connect(self._persist_geometry)
+
+        self._memory_trim_timer = QTimer(self)
+        self._memory_trim_timer.setSingleShot(True)
+        self._memory_trim_timer.setInterval(200)
+        self._memory_trim_timer.timeout.connect(trim_process_memory)
+
         self._window.installEventFilter(self)
 
         self.ui.requestQuit.connect(self.force_quit)
@@ -73,6 +80,9 @@ class QmlMainWindow(QObject):
         self._window.show()
 
     def restore_from_tray(self) -> None:
+        self._memory_trim_timer.stop()
+        self._window.setPersistentGraphics(True)
+        self._window.setPersistentSceneGraph(True)
         self._window.showNormal()
         self._window.raise_()
         self._window.requestActivate()
@@ -80,7 +90,19 @@ class QmlMainWindow(QObject):
 
     def hide_to_tray(self) -> None:
         self._persist_geometry()
+        self._hide_window_and_release_resources()
+
+    def _hide_window_and_release_resources(self) -> None:
+        """Hide the window and discard resources that are cheap to recreate."""
+        self._window.setPersistentGraphics(False)
+        self._window.setPersistentSceneGraph(False)
         self._window.hide()
+        self._window.releaseResources()
+        self._engine.collectGarbage()
+        self._engine.trimComponentCache()
+        # Scene-graph cleanup can complete on the render thread after hide();
+        # trim shortly afterwards so those freed native pages can reach the OS.
+        self._memory_trim_timer.start()
 
     def force_quit(self) -> None:
         self._force_close = True
@@ -101,7 +123,7 @@ class QmlMainWindow(QObject):
             if self._controller.settings.close_to_tray and not self._force_close:
                 if isinstance(event, QCloseEvent):
                     event.ignore()
-                self._window.hide()
+                self._hide_window_and_release_resources()
                 return True
             if isinstance(event, QCloseEvent):
                 event.accept()
@@ -124,6 +146,7 @@ class QmlMainWindow(QObject):
     def shutdown(self) -> None:
         """Release UI observers before the controller is shut down."""
         self._geometry_timer.stop()
+        self._memory_trim_timer.stop()
         self.ui.shutdown()
 
 

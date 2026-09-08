@@ -6,19 +6,14 @@ import logging
 import os
 import sys
 from logging.handlers import RotatingFileHandler
+from typing import Any
 
-from PySide6.QtGui import QFont, QIcon
-from PySide6.QtWidgets import QApplication
-
-from config.constants import AppMeta, Paths
-from core.app_controller import AppController
-from ui.controller import UiController
-from ui.native_actions import open_external_url
-from ui.tray import TrayIcon
-from ui.window import QmlMainWindow
+from core.native_memory import bootstrap_allocator, trim_process_memory
 
 
 def setup_logging() -> None:
+    from config.constants import Paths
+
     Paths.ensure_user_dirs()
     level_name = os.environ.get("NEWS_AGGREGATOR_LOG_LEVEL", "INFO").upper()
     level = getattr(logging, level_name, logging.INFO)
@@ -45,6 +40,20 @@ def setup_logging() -> None:
 
 
 def main() -> int:
+    # This must run before importing Qt, networking or the application graph so
+    # the replacement Linux/glibc process starts with the measured arena limit.
+    bootstrap_allocator()
+
+    from PySide6.QtGui import QFont, QIcon
+    from PySide6.QtWidgets import QApplication
+
+    from config.constants import AppMeta, Paths
+    from core.app_controller import AppController
+    from ui.controller import UiController
+    from ui.native_actions import open_external_url
+    from ui.tray import TrayIcon
+    from ui.window import QmlMainWindow
+
     setup_logging()
     logger = logging.getLogger(__name__)
     logger.info("Avvio %s v%s", AppMeta.NAME, AppMeta.VERSION)
@@ -61,6 +70,20 @@ def main() -> int:
 
     controller = AppController()
     ui_controller = UiController(controller, open_external=open_external_url)
+
+    def reclaim_memory_after_refresh(
+        event_name: str,
+        payload: dict[str, Any],
+    ) -> None:
+        if event_name == "refresh_state_changed" and not bool(
+            payload.get("active", False)
+        ):
+            # Controller events are emitted by the refresh worker, so this trim
+            # does not block the Qt GUI thread during normal operation.
+            trim_process_memory()
+
+    controller.register_event_listener(reclaim_memory_after_refresh)
+
     window: QmlMainWindow | None = None
     exit_code: int | None = None
     try:
@@ -91,6 +114,7 @@ def main() -> int:
             window.shutdown()
         else:
             ui_controller.shutdown()
+        controller.unregister_event_listener(reclaim_memory_after_refresh)
         controller.shutdown()
         if exit_code is None:
             logger.info("Shutdown completato durante avvio o event loop interrotto")
