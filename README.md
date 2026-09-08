@@ -15,6 +15,7 @@ News Aggregator è un'applicazione desktop Python per aggregare feed RSS/Atom in
 - progresso reale del refresh globale;
 - cancellazione dei refresh durante lo shutdown;
 - apertura degli articoli nel browser di sistema;
+- favicon delle sorgenti risolte in background, memorizzate in cache e rese monocromatiche arancioni dalla UI;
 - system tray e notifiche opzionali;
 - viewer del log applicativo;
 - scala tipografica regolabile e responsive;
@@ -34,6 +35,8 @@ La UI vive in `ui/qml/` e usa un unico design system Dark Neumorphism:
 - scala tipografica responsive rispetto alla finestra, moltiplicata per la preferenza utente;
 - controlli custom con focus da tastiera e metadati `Accessible`.
 
+L'icona applicativa viene riutilizzata nell'header e nella voce `Tutti gli articoli`. Le sorgenti singole usano la favicon del relativo sito quando disponibile; l'immagine originale viene conservata nella cache locale, mentre `AccentIcon.qml` la desatura e colorizza in arancione tramite `MultiEffect`, evitando una palette multicolore nella sidebar. Le categorie mantengono il proprio simbolo neutro.
+
 `RaisedSurface.qml` usa `RectangularShadow`. `InsetSurface.qml` nasconde uno shader SDF riutilizzabile; `install.sh` lo precompila con `pyside6-qsb --qt6`. Il `.qsb` generato è un artefatto locale e non viene versionato.
 
 Le collezioni dinamiche usano `ListView`; gli articoli e le sorgenti sono esposti da Python tramite `QAbstractListModel` con ruoli stabili. I delegate vengono riutilizzati e non possiedono stato operativo persistente.
@@ -42,9 +45,9 @@ Le collezioni dinamiche usano `ListView`; gli articoli e le sorgenti sono espost
 
 `main.py` è il composition root: crea `QApplication`, un solo `AppController`, `UiController`, la shell QML e il tray, e garantisce cleanup deterministico nel `finally`.
 
-`core/` resta indipendente da Qt. `FeedManager` possiede catalogo e persistenza; `AppController` possiede lo stato operativo e coordina refresh, impostazioni ed eventi. `ui/controller.py` coordina soltanto lo stato di vista e i modelli della schermata principale; `ui/preferences.py` e `ui/diagnostics.py` espongono interfacce QML focalizzate per preferenze e log. Gli adapter traducono comandi Qt in chiamate del controller e inoltrano eventi tramite signal Qt queued senza possedere regole di dominio o persistenza.
+`core/` resta indipendente da Qt. `FeedManager` possiede catalogo e persistenza; `AppController` possiede lo stato operativo e coordina refresh, impostazioni ed eventi. `SiteIconService` nasconde discovery HTTP, limiti di download, cache positiva/negativa e worker delle favicon; non espone rete a QML. `ui/controller.py` coordina soltanto lo stato di vista e i modelli della schermata principale; `ui/preferences.py` e `ui/diagnostics.py` espongono interfacce QML focalizzate per preferenze e log. Gli adapter traducono comandi Qt in chiamate del controller e inoltrano eventi tramite signal Qt queued senza possedere regole di dominio o persistenza.
 
-Le mutazioni persistenti avviate dalla UI vengono serializzate dal `MutationWorker` del controller, quindi le scritture JSON non bloccano il thread GUI. Python resta la sorgente canonica; QML mantiene soltanto stato di presentazione temporaneo come focus, modal aperto, ricerca corrente e drag in corso.
+Le mutazioni persistenti avviate dalla UI vengono serializzate dal `MutationWorker` del controller, quindi le scritture JSON non bloccano il thread GUI. Anche il recupero delle favicon resta fuori dal thread GUI e ha concorrenza limitata. Python resta la sorgente canonica; QML mantiene soltanto stato di presentazione temporaneo come focus, modal aperto, ricerca corrente e drag in corso.
 
 Non vengono usati WebEngine, QWebChannel, HTML, CSS o JavaScript di frontend.
 
@@ -52,7 +55,7 @@ Non vengono usati WebEngine, QWebChannel, HTML, CSS o JavaScript di frontend.
 
 - Linux desktop; CachyOS/Arch + KDE è la piattaforma primaria;
 - Python 3.12 o superiore;
-- accesso a Internet durante l'installazione delle dipendenze;
+- accesso a Internet durante l'installazione delle dipendenze e per aggiornare feed/favicon;
 - stack grafico Qt/OpenGL funzionante;
 - privilegi amministrativi disponibili solo se `install.sh` deve installare Cantarell tramite il package manager di sistema.
 
@@ -109,6 +112,7 @@ news_aggregator/
 │   ├── feed_discovery.py
 │   ├── feed_fetcher.py
 │   ├── feed_manager.py
+│   ├── site_icon_service.py
 │   └── mutation_worker.py
 ├── ui/
 │   ├── controller.py
@@ -122,6 +126,7 @@ news_aggregator/
 │       ├── Main.qml
 │       ├── AppDialogs.qml
 │       ├── Theme.qml
+│       ├── AccentIcon.qml
 │       ├── RaisedSurface.qml
 │       ├── InsetSurface.qml
 │       ├── NeuButton.qml
@@ -138,9 +143,10 @@ news_aggregator/
 |---|---|
 | `~/.config/news-aggregator/settings.json` | impostazioni |
 | `~/.local/share/news-aggregator/feeds.json` | feed, articoli e stato letto |
+| `~/.local/share/news-aggregator/site-icons/` | cache favicon delle sorgenti |
 | `~/.local/state/news-aggregator/app.log` | log rotante |
 
-La migrazione da WebEngine non cambia questi percorsi. La chiave sperimentale `font_family`, se presente in un vecchio `settings.json`, viene ignorata come impostazione obsoleta senza perdere le altre preferenze.
+La migrazione da WebEngine non cambia i percorsi esistenti. La chiave sperimentale `font_family`, se presente in un vecchio `settings.json`, viene ignorata come impostazione obsoleta senza perdere le altre preferenze.
 
 ## Licenza
 
