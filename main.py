@@ -6,8 +6,9 @@ import logging
 import os
 import sys
 from logging.handlers import RotatingFileHandler
+from typing import Any
 
-from core.native_memory import bootstrap_allocator
+from core.native_memory import bootstrap_allocator, trim_process_memory
 
 
 def setup_logging() -> None:
@@ -69,6 +70,20 @@ def main() -> int:
 
     controller = AppController()
     ui_controller = UiController(controller, open_external=open_external_url)
+
+    def reclaim_memory_after_refresh(
+        event_name: str,
+        payload: dict[str, Any],
+    ) -> None:
+        if event_name == "refresh_state_changed" and not bool(
+            payload.get("active", False)
+        ):
+            # Controller events are emitted by the refresh worker, so this trim
+            # does not block the Qt GUI thread during normal operation.
+            trim_process_memory()
+
+    controller.register_event_listener(reclaim_memory_after_refresh)
+
     window: QmlMainWindow | None = None
     exit_code: int | None = None
     try:
@@ -99,6 +114,7 @@ def main() -> int:
             window.shutdown()
         else:
             ui_controller.shutdown()
+        controller.unregister_event_listener(reclaim_memory_after_refresh)
         controller.shutdown()
         if exit_code is None:
             logger.info("Shutdown completato durante avvio o event loop interrotto")
