@@ -27,7 +27,6 @@ class Settings:
     mark_read_on_select: bool = True
     show_unread_only: bool = False
     font_scale_factor: float = 1.0
-    font_family: str = "Inter"
     window_width: int = UIConstraints.WINDOW_DEFAULT_WIDTH
     window_height: int = UIConstraints.WINDOW_DEFAULT_HEIGHT
     source_split_width: int = UIConstraints.SOURCE_LIST_MIN_WIDTH
@@ -47,11 +46,6 @@ class Settings:
             raise ConfigValidationError(
                 "font_scale_factor deve essere tra 0.5 e 2.0"
             )
-        if not isinstance(self.font_family, str) or not self.font_family.strip():
-            raise ConfigValidationError("font_family deve essere una stringa non vuota")
-        if len(self.font_family) > 128:
-            raise ConfigValidationError("font_family supera la lunghezza massima")
-        self.font_family = self.font_family.strip()
 
 
 class SettingsManager:
