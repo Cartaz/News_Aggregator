@@ -15,7 +15,7 @@ News Aggregator è un'applicazione desktop Python per aggregare feed RSS/Atom in
 - progresso reale del refresh globale;
 - cancellazione dei refresh durante lo shutdown;
 - apertura degli articoli nel browser di sistema;
-- favicon delle sorgenti risolte in background, memorizzate in cache e rese monocromatiche arancioni dalla UI;
+- favicon delle sorgenti risolte in background, normalizzate in maschere monocromatiche e memorizzate in cache;
 - system tray e notifiche opzionali;
 - viewer del log applicativo;
 - scala tipografica regolabile e responsive;
@@ -35,7 +35,7 @@ La UI vive in `ui/qml/` e usa un unico design system Dark Neumorphism:
 - scala tipografica responsive rispetto alla finestra, moltiplicata per la preferenza utente;
 - controlli custom con focus da tastiera e metadati `Accessible`.
 
-L'icona applicativa viene riutilizzata nell'header e nella voce `Tutti gli articoli`. Le sorgenti singole usano la favicon del relativo sito quando disponibile; l'immagine originale viene conservata nella cache locale, mentre `AccentIcon.qml` la desatura e colorizza in arancione tramite `MultiEffect`, evitando una palette multicolore nella sidebar. Le categorie mantengono il proprio simbolo neutro.
+L'icona applicativa viene riutilizzata nell'header e nella voce `Tutti gli articoli`. Le sorgenti singole usano la favicon del relativo sito quando disponibile. `mask-icon` e SVG restano vettoriali; le favicon raster vengono normalizzate dal backend con Pillow in PNG RGBA bianchi, rimuovendo quando possibile sfondi pieni e mantenendo il simbolo come alpha mask. `AccentIcon.qml` applica poi `Theme.accent`, così la sidebar resta monocromatica arancione. Se una favicon raster non contiene un simbolo distinguibile viene scartata e la UI usa il fallback generico. Le categorie mantengono il proprio simbolo neutro.
 
 `RaisedSurface.qml` usa `RectangularShadow`. `InsetSurface.qml` nasconde uno shader SDF riutilizzabile; `install.sh` lo precompila con `pyside6-qsb --qt6`. Il `.qsb` generato è un artefatto locale e non viene versionato.
 
@@ -45,9 +45,9 @@ Le collezioni dinamiche usano `ListView`; gli articoli e le sorgenti sono espost
 
 `main.py` è il composition root: crea `QApplication`, un solo `AppController`, `UiController`, la shell QML e il tray, e garantisce cleanup deterministico nel `finally`.
 
-`core/` resta indipendente da Qt. `FeedManager` possiede catalogo e persistenza; `AppController` possiede lo stato operativo e coordina refresh, impostazioni ed eventi. `SiteIconService` nasconde discovery HTTP, limiti di download, cache positiva/negativa e worker delle favicon; non espone rete a QML. `ui/controller.py` coordina soltanto lo stato di vista e i modelli della schermata principale; `ui/preferences.py` e `ui/diagnostics.py` espongono interfacce QML focalizzate per preferenze e log. Gli adapter traducono comandi Qt in chiamate del controller e inoltrano eventi tramite signal Qt queued senza possedere regole di dominio o persistenza.
+`core/` resta indipendente da Qt. `FeedManager` possiede catalogo e persistenza; `AppController` possiede lo stato operativo e coordina refresh, impostazioni ed eventi. `SiteIconService` nasconde discovery HTTP, limiti di download, cache positiva/negativa e worker delle favicon; `core/icon_mask.py` nasconde la normalizzazione raster e non espone dettagli grafici a QML. `ui/controller.py` coordina soltanto lo stato di vista e i modelli della schermata principale; `ui/preferences.py` e `ui/diagnostics.py` espongono interfacce QML focalizzate per preferenze e log. Gli adapter traducono comandi Qt in chiamate del controller e inoltrano eventi tramite signal Qt queued senza possedere regole di dominio o persistenza.
 
-Le mutazioni persistenti avviate dalla UI vengono serializzate dal `MutationWorker` del controller, quindi le scritture JSON non bloccano il thread GUI. Anche il recupero delle favicon resta fuori dal thread GUI e ha concorrenza limitata. Python resta la sorgente canonica; QML mantiene soltanto stato di presentazione temporaneo come focus, modal aperto, ricerca corrente e drag in corso.
+Le mutazioni persistenti avviate dalla UI vengono serializzate dal `MutationWorker` del controller, quindi le scritture JSON non bloccano il thread GUI. Anche il recupero e la normalizzazione delle favicon restano fuori dal thread GUI e hanno concorrenza limitata. Python resta la sorgente canonica; QML mantiene soltanto stato di presentazione temporaneo come focus, modal aperto, ricerca corrente e drag in corso.
 
 Non vengono usati WebEngine, QWebChannel, HTML, CSS o JavaScript di frontend.
 
@@ -112,6 +112,7 @@ news_aggregator/
 │   ├── feed_discovery.py
 │   ├── feed_fetcher.py
 │   ├── feed_manager.py
+│   ├── icon_mask.py
 │   ├── site_icon_service.py
 │   └── mutation_worker.py
 ├── ui/
@@ -143,10 +144,10 @@ news_aggregator/
 |---|---|
 | `~/.config/news-aggregator/settings.json` | impostazioni |
 | `~/.local/share/news-aggregator/feeds.json` | feed, articoli e stato letto |
-| `~/.local/share/news-aggregator/site-icons/` | cache favicon delle sorgenti |
+| `~/.local/share/news-aggregator/site-icons/` | cache favicon/mask delle sorgenti |
 | `~/.local/state/news-aggregator/app.log` | log rotante |
 
-La migrazione da WebEngine non cambia i percorsi esistenti. La chiave sperimentale `font_family`, se presente in un vecchio `settings.json`, viene ignorata come impostazione obsoleta senza perdere le altre preferenze.
+La migrazione da WebEngine non cambia i percorsi esistenti. La cache favicon usa una versione interna: dopo aggiornamenti dell'algoritmo le vecchie immagini vengono ignorate e rigenerate automaticamente, senza intervento manuale. La chiave sperimentale `font_family`, se presente in un vecchio `settings.json`, viene ignorata come impostazione obsoleta senza perdere le altre preferenze.
 
 ## Licenza
 
