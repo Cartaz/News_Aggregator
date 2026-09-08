@@ -35,11 +35,11 @@ La UI vive in `ui/qml/` e usa un unico design system Dark Neumorphism:
 - scala tipografica responsive rispetto alla finestra, moltiplicata per la preferenza utente;
 - controlli custom con focus da tastiera e metadati `Accessible`.
 
-L'icona applicativa viene riutilizzata nell'header e nella voce `Tutti gli articoli`. Le sorgenti singole usano la favicon del relativo sito quando disponibile; l'immagine originale viene conservata nella cache locale, mentre `AccentIcon.qml` la desatura e colorizza in arancione tramite `MultiEffect`, evitando una palette multicolore nella sidebar. Le categorie mantengono il proprio simbolo neutro.
+L'icona applicativa viene riutilizzata nell'header e nella voce `Tutti gli articoli`. Le sorgenti singole usano la favicon del relativo sito quando disponibile; l'immagine originale viene conservata nella cache locale, mentre `AccentIcon.qml` applica la colorizzazione arancione tramite `MultiEffect`, evitando una palette multicolore nella sidebar. Le categorie mantengono il proprio simbolo neutro.
 
 `RaisedSurface.qml` usa `RectangularShadow`. `InsetSurface.qml` nasconde uno shader SDF riutilizzabile; `install.sh` lo precompila con `pyside6-qsb --qt6`. Il `.qsb` generato è un artefatto locale e non viene versionato.
 
-Le collezioni dinamiche usano `ListView`; gli articoli e le sorgenti sono esposti da Python tramite `QAbstractListModel` con ruoli stabili. I delegate vengono riutilizzati e non possiedono stato operativo persistente.
+Le collezioni dinamiche usano `ListView`; gli articoli e le sorgenti sono esposti da Python tramite `QAbstractListModel` con ruoli stabili. I delegate vengono riutilizzati e non possiedono stato operativo persistente. Gli aggiornamenti non strutturali del model sorgenti usano notifiche `dataChanged` mirate invece di reset completi, così la sidebar non ricrea inutilmente tutti i delegate durante navigazione e refresh.
 
 ## Architettura e concorrenza
 
@@ -47,7 +47,9 @@ Le collezioni dinamiche usano `ListView`; gli articoli e le sorgenti sono espost
 
 `core/` resta indipendente da Qt. `FeedManager` possiede catalogo e persistenza; `AppController` possiede lo stato operativo e coordina refresh, impostazioni ed eventi. `SiteIconService` nasconde discovery HTTP, limiti di download, cache positiva/negativa e worker delle favicon; non espone rete a QML. `ui/controller.py` coordina soltanto lo stato di vista e i modelli della schermata principale; `ui/preferences.py` e `ui/diagnostics.py` espongono interfacce QML focalizzate per preferenze e log. Gli adapter traducono comandi Qt in chiamate del controller e inoltrano eventi tramite signal Qt queued senza possedere regole di dominio o persistenza.
 
-Le mutazioni persistenti avviate dalla UI vengono serializzate dal `MutationWorker` del controller, quindi le scritture JSON non bloccano il thread GUI. Anche il recupero delle favicon resta fuori dal thread GUI e ha concorrenza limitata. Python resta la sorgente canonica; QML mantiene soltanto stato di presentazione temporaneo come focus, modal aperto, ricerca corrente e drag in corso.
+Le mutazioni persistenti avviate dalla UI vengono serializzate dal `MutationWorker` del controller, quindi le scritture JSON non bloccano il thread GUI. Anche il recupero delle favicon resta fuori dal thread GUI e ha concorrenza limitata. Python resta la sorgente canonica; QML mantiene soltanto stato di presentazione temporaneo come focus, modal aperto e ricerca corrente.
+
+Su Linux l'avvio applica automaticamente un limite conservativo agli arena glibc (`MALLOC_ARENA_MAX=2`) prima degli import pesanti, rispettando un eventuale valore impostato esplicitamente dall'utente. Al termine dei refresh e quando l'app entra nel tray viene richiesto il rilascio delle pagine native inutilizzate; nel tray la finestra Qt Quick rilascia inoltre risorse grafiche e scene graph ricreabili. Queste ottimizzazioni sono best-effort e diventano no-op sulle piattaforme dove le primitive native non sono disponibili.
 
 Non vengono usati WebEngine, QWebChannel, HTML, CSS o JavaScript di frontend.
 
@@ -71,7 +73,7 @@ chmod +x install.sh
 Lo script:
 
 1. verifica Python 3.12+;
-2. verifica il font Cantarell e, se manca, lo installa automaticamente sui sistemi supportati (`cantarell-fonts` su Arch/CachyOS, `fonts-cantarell` su Debian/Ubuntu, pacchetto Cantarell Fedora via `dnf`);
+2. verifica il font Cantarell e, se manca, lo installa automaticamente sui sistemi supportati (`cantarell-fonts` su Arch/CachyOS, `fonts-cantarell` su Debian/Ubuntu, `abattis-cantarell-vf-fonts` su Fedora);
 3. crea, riusa o ripara `.venv`;
 4. installa le dipendenze runtime;
 5. individua il `qsb` abbinato a PySide6 (con fallback ai percorsi Qt di sistema);
@@ -86,7 +88,7 @@ Su Arch/CachyOS, se il tool QSB non fosse disponibile dal virtualenv, il pacchet
 .venv/bin/python main.py
 ```
 
-Non serve attivare la virtualenv con `source`.
+Non serve attivare la virtualenv con `source` e non serve prefissare manualmente `MALLOC_ARENA_MAX=2`: su Linux la policy viene applicata automaticamente dall'entry point.
 
 ## Test
 
@@ -112,8 +114,10 @@ news_aggregator/
 │   ├── feed_discovery.py
 │   ├── feed_fetcher.py
 │   ├── feed_manager.py
-│   ├── site_icon_service.py
-│   └── mutation_worker.py
+│   ├── mutation_worker.py
+│   ├── native_memory.py
+│   ├── refresh_state.py
+│   └── site_icon_service.py
 ├── ui/
 │   ├── controller.py
 │   ├── models.py
