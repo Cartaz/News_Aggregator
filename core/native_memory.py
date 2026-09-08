@@ -12,6 +12,7 @@ from typing import Any
 
 DEFAULT_GLIBC_ARENA_MAX = 2
 
+_malloc_trim_library: Any | None = None
 _malloc_trim_function: Any | None = None
 _malloc_trim_resolved = False
 
@@ -40,7 +41,7 @@ def bootstrap_allocator(arena_max: int = DEFAULT_GLIBC_ARENA_MAX) -> None:
 
 
 def _resolve_malloc_trim() -> Any | None:
-    global _malloc_trim_function, _malloc_trim_resolved
+    global _malloc_trim_library, _malloc_trim_function, _malloc_trim_resolved
 
     if _malloc_trim_resolved:
         return _malloc_trim_function
@@ -52,13 +53,14 @@ def _resolve_malloc_trim() -> Any | None:
     try:
         import ctypes
 
-        libc = ctypes.CDLL(None)
-        function = getattr(libc, "malloc_trim")
+        library = ctypes.CDLL(None)
+        function = getattr(library, "malloc_trim")
         function.argtypes = [ctypes.c_size_t]
         function.restype = ctypes.c_int
     except (AttributeError, OSError):
         return None
 
+    _malloc_trim_library = library
     _malloc_trim_function = function
     return function
 
