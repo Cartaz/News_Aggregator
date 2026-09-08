@@ -17,7 +17,7 @@ News Aggregator è un'applicazione desktop Python per aggregare feed RSS/Atom in
 - apertura degli articoli nel browser di sistema;
 - system tray e notifiche opzionali;
 - viewer del log applicativo;
-- scelta persistente del carattere UI con anteprima immediata tra 10 font disponibili nel sistema;
+- scala tipografica regolabile e responsive;
 - scorciatoie da tastiera e navigazione con frecce nella lista articoli.
 
 ## Interfaccia Qt Quick
@@ -27,11 +27,11 @@ La UI vive in `ui/qml/` e usa un unico design system Dark Neumorphism:
 - superficie `rgb(20,20,20)` / `#141414`;
 - accento `rgb(255,102,0)` / `#ff6600`;
 - testo `#e1e1e1`, `#878787`, `#5a5a5a`;
+- font UI canonico **Cantarell**;
 - raggi 28 / 22 / 16 / 12 px;
 - pannelli principali raised, righe soft-raised, campi/pressioni/selezioni inset;
 - selezione = profondità inset + testo/bordo arancione con glow leggero e semitrasparente;
 - scala tipografica responsive rispetto alla finestra, moltiplicata per la preferenza utente;
-- selettore di 10 font UI realmente disponibili nel sistema, con anteprima live e persistenza al salvataggio;
 - controlli custom con focus da tastiera e metadati `Accessible`.
 
 `RaisedSurface.qml` usa `RectangularShadow`. `InsetSurface.qml` nasconde uno shader SDF riutilizzabile; `install.sh` lo precompila con `pyside6-qsb --qt6`. Il `.qsb` generato è un artefatto locale e non viene versionato.
@@ -44,7 +44,7 @@ Le collezioni dinamiche usano `ListView`; gli articoli e le sorgenti sono espost
 
 `core/` resta indipendente da Qt. `FeedManager` possiede catalogo e persistenza; `AppController` possiede lo stato operativo e coordina refresh, impostazioni ed eventi. `ui/controller.py` coordina soltanto lo stato di vista e i modelli della schermata principale; `ui/preferences.py` e `ui/diagnostics.py` espongono interfacce QML focalizzate per preferenze e log. Gli adapter traducono comandi Qt in chiamate del controller e inoltrano eventi tramite signal Qt queued senza possedere regole di dominio o persistenza.
 
-Le mutazioni persistenti avviate dalla UI vengono serializzate dal `MutationWorker` del controller, quindi le scritture JSON non bloccano il thread GUI. Python resta la sorgente canonica; QML mantiene soltanto stato di presentazione temporaneo (focus, modal aperto, ricerca corrente, drag in corso e anteprima del font prima del salvataggio).
+Le mutazioni persistenti avviate dalla UI vengono serializzate dal `MutationWorker` del controller, quindi le scritture JSON non bloccano il thread GUI. Python resta la sorgente canonica; QML mantiene soltanto stato di presentazione temporaneo come focus, modal aperto, ricerca corrente e drag in corso.
 
 Non vengono usati WebEngine, QWebChannel, HTML, CSS o JavaScript di frontend.
 
@@ -54,7 +54,7 @@ Non vengono usati WebEngine, QWebChannel, HTML, CSS o JavaScript di frontend.
 - Python 3.12 o superiore;
 - accesso a Internet durante l'installazione delle dipendenze;
 - stack grafico Qt/OpenGL funzionante;
-- almeno un font UI scalabile installato; Qt usa i font disponibili del sistema.
+- privilegi amministrativi disponibili solo se `install.sh` deve installare Cantarell tramite il package manager di sistema.
 
 ## Installazione
 
@@ -68,11 +68,12 @@ chmod +x install.sh
 Lo script:
 
 1. verifica Python 3.12+;
-2. crea, riusa o ripara `.venv`;
-3. installa le dipendenze runtime;
-4. individua il `qsb` abbinato a PySide6 (con fallback ai percorsi Qt di sistema);
-5. compila `ui/qml/shaders/neumorphic_inset.frag` in un pacchetto multi-backend `.qsb` tramite `--qt6`;
-6. verifica che il pacchetto contenga una variante GLSL e che i moduli Qt Quick critici siano importabili.
+2. verifica il font Cantarell e, se manca, lo installa automaticamente sui sistemi supportati (`cantarell-fonts` su Arch/CachyOS, `fonts-cantarell` su Debian/Ubuntu, pacchetto Cantarell Fedora via `dnf`);
+3. crea, riusa o ripara `.venv`;
+4. installa le dipendenze runtime;
+5. individua il `qsb` abbinato a PySide6 (con fallback ai percorsi Qt di sistema);
+6. compila `ui/qml/shaders/neumorphic_inset.frag` in un pacchetto multi-backend `.qsb` tramite `--qt6`;
+7. verifica che il pacchetto contenga una variante GLSL e che i moduli Qt Quick critici siano importabili.
 
 Su Arch/CachyOS, se il tool QSB non fosse disponibile dal virtualenv, il pacchetto di sistema è `qt6-shadertools`.
 
@@ -139,7 +140,7 @@ news_aggregator/
 | `~/.local/share/news-aggregator/feeds.json` | feed, articoli e stato letto |
 | `~/.local/state/news-aggregator/app.log` | log rotante |
 
-La migrazione da WebEngine non cambia questi percorsi. Le installazioni esistenti che non hanno ancora `font_family` ricevono il nuovo default senza perdere le altre impostazioni.
+La migrazione da WebEngine non cambia questi percorsi. La chiave sperimentale `font_family`, se presente in un vecchio `settings.json`, viene ignorata come impostazione obsoleta senza perdere le altre preferenze.
 
 ## Licenza
 
