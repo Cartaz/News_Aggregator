@@ -142,14 +142,22 @@ class SiteIconService:
         self._cache_dir = cache_dir or Paths.SITE_ICON_CACHE_DIR
         self._cache_dir.mkdir(parents=True, exist_ok=True)
         self._timeout = max(2, int(timeout))
-        self._executor = ThreadPoolExecutor(
-            max_workers=max(1, int(max_workers)),
-            thread_name_prefix="site-icon",
-        )
+        self._max_workers = max(1, int(max_workers))
+        self._executor: ThreadPoolExecutor | None = None
         self._lock = threading.RLock()
         self._stop_event = threading.Event()
         self._pending: dict[str, list[tuple[str, IconReady]]] = {}
         self._closed = False
+
+    def _executor_locked(self) -> ThreadPoolExecutor:
+        executor = self._executor
+        if executor is None:
+            executor = ThreadPoolExecutor(
+                max_workers=self._max_workers,
+                thread_name_prefix="site-icon",
+            )
+            self._executor = executor
+        return executor
 
     def cached_icon_for(self, source: FeedSource) -> Path | None:
         origin = _origin_for_source(source)
@@ -177,7 +185,7 @@ class SiteIconService:
                 waiters.append((source.id, callback))
                 return
             self._pending[key] = [(source.id, callback)]
-            future = self._executor.submit(self._resolve_icon, key, origin)
+            future = self._executor_locked().submit(self._resolve_icon, key, origin)
             future.add_done_callback(
                 lambda done, cache_key=key: self._finish(cache_key, done)
             )
@@ -188,10 +196,20 @@ class SiteIconService:
         except Exception:
             logger.debug("Risoluzione favicon fallita", exc_info=True)
             path = None
+
+        executor_to_shutdown: ThreadPoolExecutor | None = None
         with self._lock:
             waiters = self._pending.pop(key, [])
-            if self._closed:
-                return
+            closed = self._closed
+            if not self._pending and self._executor is not None:
+                executor_to_shutdown = self._executor
+                self._executor = None
+
+        if executor_to_shutdown is not None:
+            executor_to_shutdown.shutdown(wait=False, cancel_futures=False)
+        if closed:
+            return
+
         for source_id, callback in waiters:
             try:
                 callback(source_id, path)
@@ -309,13 +327,17 @@ class SiteIconService:
             return False
 
     def shutdown(self) -> None:
+        executor: ThreadPoolExecutor | None = None
         with self._lock:
             if self._closed:
                 return
             self._closed = True
             self._stop_event.set()
             self._pending.clear()
-        self._executor.shutdown(wait=False, cancel_futures=True)
+            executor = self._executor
+            self._executor = None
+        if executor is not None:
+            executor.shutdown(wait=False, cancel_futures=True)
 
 
 __all__ = ["IconReady", "SiteIconService"]

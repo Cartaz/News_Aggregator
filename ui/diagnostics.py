@@ -49,5 +49,14 @@ class DiagnosticsAdapter(QObject):
             self.loadFailed.emit(str(exc) or "Log non disponibile")
             return False
 
+    @Slot()
+    def clear(self) -> None:
+        """Release the transient log snapshot after the diagnostics dialog closes."""
+        if not self._path and not self._text:
+            return
+        self._path = ""
+        self._text = ""
+        self.changed.emit()
+
 
 __all__ = ["DiagnosticsAdapter"]

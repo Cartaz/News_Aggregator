@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import importlib
+import importlib.util
 import logging
 import threading
 from dataclasses import dataclass
@@ -15,21 +17,16 @@ from core.exceptions import FeedFetchError, RefreshCancelledError
 
 logger = logging.getLogger(__name__)
 
-try:
-    from curl_cffi import requests as cf_requests  # type: ignore[import-untyped]
-    _HAS_CURL_CFFI: bool = True
-except ImportError:
-    cf_requests = None  # type: ignore[assignment]
-    _HAS_CURL_CFFI = False
-
-try:
-    import brotli  # noqa: F401
-    _HAS_BROTLI: bool = True
-except ImportError:
-    _HAS_BROTLI = False
+# curl_cffi is a relatively heavy optional native dependency. Keep it out of
+# the process until the normal requests transport actually needs the WAF
+# fallback. These names remain module-level for compatibility with focused
+# tests and diagnostics.
+cf_requests: Any | None = None
+_HAS_CURL_CFFI: bool | None = None
+_HAS_BROTLI = importlib.util.find_spec("brotli") is not None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class HttpFetchResult:
     """Risultato HTTP con validator utili ai refresh condizionali."""
 
@@ -37,6 +34,24 @@ class HttpFetchResult:
     etag: str = ""
     last_modified: str = ""
     not_modified: bool = False
+
+
+def _get_curl_requests() -> Any | None:
+    """Load curl_cffi only when the primary requests transport has failed."""
+    global _HAS_CURL_CFFI, cf_requests
+
+    if cf_requests is not None:
+        _HAS_CURL_CFFI = True
+        return cf_requests
+    if _HAS_CURL_CFFI is False:
+        return None
+    try:
+        cf_requests = importlib.import_module("curl_cffi.requests")
+    except ImportError:
+        _HAS_CURL_CFFI = False
+        return None
+    _HAS_CURL_CFFI = True
+    return cf_requests
 
 
 def _raise_if_cancelled(cancel_event: threading.Event | None) -> None:
@@ -168,10 +183,11 @@ def fetch_url_response(
         last_error = FeedFetchError(url, str(exc))
 
     _raise_if_cancelled(cancel_event)
-    if _HAS_CURL_CFFI:
+    curl_requests = _get_curl_requests()
+    if curl_requests is not None:
         try:
             logger.debug("GET %s (curl_cffi, chrome120)", url)
-            cf_response: Any = cf_requests.get(
+            cf_response: Any = curl_requests.get(
                 url,
                 impersonate="chrome120",
                 timeout=actual_timeout,

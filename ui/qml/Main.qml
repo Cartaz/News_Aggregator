@@ -241,6 +241,7 @@ Window {
                             spacing: 2
                             model: backend.sources
                             reuseItems: true
+                            cacheBuffer: 0
                             boundsBehavior: Flickable.StopAtBounds
                             currentIndex: backend.selectedSourceRow
                             delegate: SourceRow {

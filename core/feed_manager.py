@@ -125,17 +125,23 @@ class FeedManager:
             self._source_epochs = loaded_epochs
 
     def _persist_catalog(self, catalog: dict[str, FeedSource]) -> None:
-        """Atomically write one detached catalog without holding the state lock."""
+        """Atomically stream one detached catalog without holding the state lock."""
         Paths.ensure_user_dirs()
         temporary = self._path.with_name(f".{self._path.name}.tmp")
-        data = {
-            "sources": [serialize_source(source) for source in catalog.values()]
-        }
         try:
-            temporary.write_text(
-                json.dumps(data, indent=2, default=str),
-                encoding="utf-8",
-            )
+            with temporary.open("w", encoding="utf-8") as handle:
+                handle.write('{"sources":[')
+                for index, source in enumerate(catalog.values()):
+                    if index:
+                        handle.write(",")
+                    json.dump(
+                        serialize_source(source),
+                        handle,
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                        default=str,
+                    )
+                handle.write("]}")
             temporary.replace(self._path)
         except OSError as exc:
             try:

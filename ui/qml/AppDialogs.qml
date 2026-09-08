@@ -22,44 +22,47 @@ Item {
             root.modalReturnFocus = root.Window.window.activeFocusItem
     }
     function finishDialog() {
+        const closingMode = root.modalMode
         root.modalBusy = false
         root.modalMode = ""
+        if (closingMode === "log")
+            backend.diagnostics.clear()
         const target = root.modalReturnFocus
         root.modalReturnFocus = null
         if (target) Qt.callLater(function() { target.forceActiveFocus() })
     }
     function openAddFeed() {
         rememberFocus()
-        addUrl.text = ""; addTitle.text = ""; modalBusy = false; modalMode = "add"
-        Qt.callLater(function() { addUrl.forceActiveFocus() })
+        root.modalBusy = false
+        root.modalMode = "add"
     }
     function openEditFeed() {
         if (!backend.selectedSourceIsFeed) return
         rememberFocus()
-        editTitle.text = backend.selectedSourceTitle
-        editCategory.text = backend.selectedSourceCategory
-        modalBusy = false; modalMode = "edit"
-        Qt.callLater(function() { editTitle.forceActiveFocus() })
+        root.modalBusy = false
+        root.modalMode = "edit"
     }
     function openRemoveFeed() {
         if (!backend.selectedSourceIsFeed) return
         rememberFocus()
-        modalBusy = false; modalMode = "remove"
+        root.modalBusy = false
+        root.modalMode = "remove"
     }
     function openSettings() {
         rememberFocus()
-        settingsInterval = backend.preferences.refreshIntervalMinutes
-        settingsAutoRead = backend.preferences.markReadOnSelect
-        settingsNotify = backend.preferences.notifyNewItems
-        settingsTray = backend.preferences.closeToTray
-        settingsScale = backend.preferences.fontScaleFactor
-        modalBusy = false; modalMode = "settings"
+        root.settingsInterval = backend.preferences.refreshIntervalMinutes
+        root.settingsAutoRead = backend.preferences.markReadOnSelect
+        root.settingsNotify = backend.preferences.notifyNewItems
+        root.settingsTray = backend.preferences.closeToTray
+        root.settingsScale = backend.preferences.fontScaleFactor
+        root.modalBusy = false
+        root.modalMode = "settings"
     }
     function openLog() {
-        if (backend.diagnostics.load()) modalMode = "log"
+        if (backend.diagnostics.load()) root.modalMode = "log"
     }
     function closeDialog() {
-        if (modalBusy) return
+        if (root.modalBusy) return
         finishDialog()
     }
 
@@ -101,67 +104,129 @@ Item {
         function onLoadFailed(message) { root.showToast("Log non disponibile", message, true) }
     }
 
-    ModalSurface {
+    Loader {
+        id: modalLoader
         anchors.fill: parent
-        visible: root.modalMode !== ""
-        eyebrow: root.modalMode === "settings" ? "Preferenze" : (root.modalMode === "log" ? "Diagnostica" : (root.modalMode === "remove" ? "Conferma" : "Sorgente"))
-        title: root.modalMode === "add" ? "Aggiungi un feed" : root.modalMode === "edit" ? "Modifica feed" : root.modalMode === "remove" ? "Rimuovi feed" : root.modalMode === "settings" ? "Impostazioni" : root.modalMode === "log" ? "Log applicazione" : ""
-        onCloseRequested: root.closeDialog()
+        active: root.opened
+        sourceComponent: modalFrame
+    }
 
+    Component {
+        id: modalFrame
+        ModalSurface {
+            anchors.fill: parent
+            eyebrow: root.modalMode === "settings"
+                ? "Preferenze"
+                : (root.modalMode === "log"
+                    ? "Diagnostica"
+                    : (root.modalMode === "remove" ? "Conferma" : "Sorgente"))
+            title: root.modalMode === "add"
+                ? "Aggiungi un feed"
+                : root.modalMode === "edit"
+                    ? "Modifica feed"
+                    : root.modalMode === "remove"
+                        ? "Rimuovi feed"
+                        : root.modalMode === "settings"
+                            ? "Impostazioni"
+                            : root.modalMode === "log"
+                                ? "Log applicazione"
+                                : ""
+            onCloseRequested: root.closeDialog()
+
+            Loader {
+                anchors.fill: parent
+                sourceComponent: root.modalMode === "add"
+                    ? addBody
+                    : root.modalMode === "edit"
+                        ? editBody
+                        : root.modalMode === "remove"
+                            ? removeBody
+                            : root.modalMode === "settings"
+                                ? settingsBody
+                                : root.modalMode === "log"
+                                    ? logBody
+                                    : null
+            }
+        }
+    }
+
+    Component {
+        id: addBody
         Item {
             anchors.fill: parent
-            visible: root.modalMode === "add"
+            Component.onCompleted: Qt.callLater(function() { addUrl.forceActiveFocus() })
             Column {
-                anchors.fill: parent; spacing: 14
+                anchors.fill: parent
+                spacing: 14
                 Text { text: "URL del feed o del sito"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(11 * Theme.fontScale) }
                 NeuTextField { id: addUrl; width: parent.width; label: "URL del feed o del sito"; placeholderText: "https://example.com/feed.xml"; onAccepted: addTitle.forceActiveFocus() }
                 Text { text: "Titolo personalizzato"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(11 * Theme.fontScale) }
                 NeuTextField { id: addTitle; width: parent.width; label: "Titolo personalizzato"; placeholderText: "Opzionale" }
                 Text { width: parent.width; text: "Se il sito espone un feed RSS/Atom diretto, usa quell’indirizzo."; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: Math.round(11 * Theme.fontScale); wrapMode: Text.WordWrap }
                 Item { width: 1; height: 10 }
-                Row { anchors.right: parent.right; spacing: 10
+                Row {
+                    anchors.right: parent.right
+                    spacing: 10
                     NeuButton { width: 110; height: 42; label: "Annulla"; cornerRadius: 14; textSize: 13; enabled: !root.modalBusy; onClicked: root.closeDialog() }
                     NeuButton { width: 140; height: 42; label: root.modalBusy ? "Aggiungo…" : "Aggiungi feed"; accent: true; cornerRadius: 14; textSize: 13; enabled: !root.modalBusy; onClicked: { root.modalBusy = true; backend.addFeed(addUrl.text, addTitle.text) } }
                 }
             }
         }
+    }
 
+    Component {
+        id: editBody
         Item {
             anchors.fill: parent
-            visible: root.modalMode === "edit"
+            Component.onCompleted: {
+                editTitle.text = backend.selectedSourceTitle
+                editCategory.text = backend.selectedSourceCategory
+                Qt.callLater(function() { editTitle.forceActiveFocus() })
+            }
             Column {
-                anchors.fill: parent; spacing: 14
+                anchors.fill: parent
+                spacing: 14
                 Text { text: "Titolo"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(11 * Theme.fontScale) }
                 NeuTextField { id: editTitle; width: parent.width; label: "Titolo" }
                 Text { text: "Categoria"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(11 * Theme.fontScale) }
                 NeuTextField { id: editCategory; width: parent.width; label: "Categoria"; placeholderText: "Es. Tecnologia" }
                 Text { width: parent.width; text: backend.selectedSourceUrl; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: Math.round(10 * Theme.fontScale); wrapMode: Text.WrapAnywhere }
                 Item { width: 1; height: 10 }
-                Row { anchors.right: parent.right; spacing: 10
+                Row {
+                    anchors.right: parent.right
+                    spacing: 10
                     NeuButton { width: 110; height: 42; label: "Annulla"; cornerRadius: 14; textSize: 13; enabled: !root.modalBusy; onClicked: root.closeDialog() }
                     NeuButton { width: 110; height: 42; label: root.modalBusy ? "Salvo…" : "Salva"; accent: true; cornerRadius: 14; textSize: 13; enabled: !root.modalBusy; onClicked: { root.modalBusy = true; backend.updateSelectedFeed(editTitle.text, editCategory.text) } }
                 }
             }
         }
+    }
 
+    Component {
+        id: removeBody
         Item {
             anchors.fill: parent
-            visible: root.modalMode === "remove"
             Column {
-                anchors.fill: parent; spacing: 20
+                anchors.fill: parent
+                spacing: 20
                 Text { width: parent.width; text: "Rimuovere “" + backend.selectedSourceTitle + "” e gli articoli salvati associati a questa sorgente?"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(13 * Theme.fontScale); wrapMode: Text.WordWrap }
-                Row { anchors.right: parent.right; spacing: 10
+                Row {
+                    anchors.right: parent.right
+                    spacing: 10
                     NeuButton { width: 110; height: 42; label: "Annulla"; cornerRadius: 14; textSize: 13; enabled: !root.modalBusy; onClicked: root.closeDialog() }
                     NeuButton { width: 110; height: 42; label: root.modalBusy ? "Rimuovo…" : "Rimuovi"; accent: true; cornerRadius: 14; textSize: 13; enabled: !root.modalBusy; onClicked: { root.modalBusy = true; backend.removeSelectedFeed() } }
                 }
             }
         }
+    }
 
+    Component {
+        id: settingsBody
         Item {
             anchors.fill: parent
-            visible: root.modalMode === "settings"
             Column {
-                anchors.fill: parent; spacing: 12
+                anchors.fill: parent
+                spacing: 12
                 Text { text: "Aggiornamento automatico"; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: Math.round(13 * Theme.fontScale); font.bold: true }
                 Row {
                     spacing: 6
@@ -177,20 +242,24 @@ Item {
                     }
                 }
                 Rectangle { width: parent.width; height: 1; color: Theme.line }
-                Row { width: parent.width; spacing: 12
+                Row {
+                    width: parent.width; spacing: 12
                     Text { width: parent.width - 60; text: "Segna letto quando cambi articolo"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(12 * Theme.fontScale); anchors.verticalCenter: parent.verticalCenter }
                     NeuToggle { checked: root.settingsAutoRead; accessibleName: "Segna letto quando cambi articolo"; onToggled: function(v) { root.settingsAutoRead = v } }
                 }
-                Row { width: parent.width; spacing: 12
+                Row {
+                    width: parent.width; spacing: 12
                     Text { width: parent.width - 60; text: "Notifiche desktop per nuovi articoli"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(12 * Theme.fontScale); anchors.verticalCenter: parent.verticalCenter }
                     NeuToggle { checked: root.settingsNotify; accessibleName: "Notifiche desktop per nuovi articoli"; onToggled: function(v) { root.settingsNotify = v } }
                 }
-                Row { width: parent.width; spacing: 12
+                Row {
+                    width: parent.width; spacing: 12
                     Text { width: parent.width - 60; text: "Chiudi la finestra nel tray"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(12 * Theme.fontScale); anchors.verticalCenter: parent.verticalCenter }
                     NeuToggle { checked: root.settingsTray; accessibleName: "Chiudi la finestra nel tray"; onToggled: function(v) { root.settingsTray = v } }
                 }
                 Rectangle { width: parent.width; height: 1; color: Theme.line }
-                Row { width: parent.width; spacing: 10
+                Row {
+                    width: parent.width; spacing: 10
                     Text { width: 180; text: "Dimensione testo"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(12 * Theme.fontScale); anchors.verticalCenter: parent.verticalCenter }
                     NeuButton { width: 36; height: 32; label: "−"; onClicked: root.settingsScale = Math.max(0.75, Math.round((root.settingsScale - 0.05) * 100) / 100) }
                     InsetSurface { width: 70; height: 32; cornerRadius: 12; Text { anchors.centerIn: parent; text: Math.round(root.settingsScale * 100) + "%"; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: Math.round(11 * Theme.fontScale) } }
@@ -199,18 +268,23 @@ Item {
                     NeuButton { width: 90; height: 34; label: "Apri log"; textSize: 11; onClicked: root.openLog() }
                 }
                 Item { width: 1; height: 12 }
-                Row { anchors.right: parent.right; spacing: 10
+                Row {
+                    anchors.right: parent.right
+                    spacing: 10
                     NeuButton { width: 110; height: 42; label: "Annulla"; cornerRadius: 14; textSize: 13; enabled: !root.modalBusy; onClicked: root.closeDialog() }
                     NeuButton { width: 110; height: 42; label: root.modalBusy ? "Salvo…" : "Salva"; accent: true; cornerRadius: 14; textSize: 13; enabled: !root.modalBusy; onClicked: { root.modalBusy = true; backend.preferences.saveSettings(root.settingsInterval, root.settingsAutoRead, root.settingsNotify, root.settingsTray, root.settingsScale) } }
                 }
             }
         }
+    }
 
+    Component {
+        id: logBody
         Item {
             anchors.fill: parent
-            visible: root.modalMode === "log"
             Column {
-                anchors.fill: parent; spacing: 10
+                anchors.fill: parent
+                spacing: 10
                 Text { width: parent.width; text: backend.diagnostics.path; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: Math.round(10 * Theme.fontScale); elide: Text.ElideMiddle }
                 InsetSurface {
                     width: parent.width; height: parent.height - 70; cornerRadius: Theme.radiusMD; depth: 6.0

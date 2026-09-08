@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Window
 import QtQuick.Effects
 import "."
 
@@ -13,9 +14,13 @@ Item {
         id: sourceImage
         anchors.fill: parent
         source: root.source
+        sourceSize: Qt.size(
+            Math.max(1, Math.ceil(root.width * Screen.devicePixelRatio)),
+            Math.max(1, Math.ceil(root.height * Screen.devicePixelRatio))
+        )
         fillMode: Image.PreserveAspectFit
         smooth: true
-        mipmap: true
+        mipmap: false
         asynchronous: true
         visible: false
     }

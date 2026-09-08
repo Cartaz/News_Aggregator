@@ -12,7 +12,7 @@ from PySide6.QtCore import QAbstractListModel, QModelIndex, QObject, Qt
 from core.models import FeedItem
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class SourceRowData:
     kind: str
     identifier: str
@@ -25,12 +25,10 @@ class SourceRowData:
     icon_source: str = ""
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ArticleRowData:
     item: FeedItem
     source_title: str
-    published_relative: str
-    published_full: str
 
 
 class _SourceRole(IntEnum):
@@ -72,18 +70,26 @@ class SourceListModel(QAbstractListModel):
         if not index.isValid() or not 0 <= index.row() < len(self._rows):
             return None
         row = self._rows[index.row()]
-        mapping: dict[int, Any] = {
-            int(_SourceRole.Kind): row.kind,
-            int(_SourceRole.Identifier): row.identifier,
-            int(_SourceRole.Title): row.title,
-            int(_SourceRole.UnreadCount): row.unread_count,
-            int(_SourceRole.Selected): row.selected,
-            int(_SourceRole.Status): row.status,
-            int(_SourceRole.Error): row.error,
-            int(_SourceRole.FirstFeed): row.first_feed,
-            int(_SourceRole.IconSource): row.icon_source,
-        }
-        return mapping.get(int(role))
+        role = int(role)
+        if role == int(_SourceRole.Kind):
+            return row.kind
+        if role == int(_SourceRole.Identifier):
+            return row.identifier
+        if role == int(_SourceRole.Title):
+            return row.title
+        if role == int(_SourceRole.UnreadCount):
+            return row.unread_count
+        if role == int(_SourceRole.Selected):
+            return row.selected
+        if role == int(_SourceRole.Status):
+            return row.status
+        if role == int(_SourceRole.Error):
+            return row.error
+        if role == int(_SourceRole.FirstFeed):
+            return row.first_feed
+        if role == int(_SourceRole.IconSource):
+            return row.icon_source
+        return None
 
     def replace(self, rows: list[SourceRowData]) -> None:
         self.beginResetModel()
@@ -138,7 +144,7 @@ class ArticleListModel(QAbstractListModel):
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._all_rows: list[ArticleRowData] = []
-        self._visible_rows: list[ArticleRowData] = []
+        self._visible_rows: list[ArticleRowData] = self._all_rows
         self._search_query = ""
         self._unread_only = False
 
@@ -164,32 +170,37 @@ class ArticleListModel(QAbstractListModel):
             return None
         row = self._visible_rows[index.row()]
         item = row.item
-        mapping: dict[int, Any] = {
-            int(_ArticleRole.ItemId): item.id,
-            int(_ArticleRole.SourceId): item.source_id,
-            int(_ArticleRole.SourceTitle): row.source_title,
-            int(_ArticleRole.Title): item.title or "Senza titolo",
-            int(_ArticleRole.Link): item.link,
-            int(_ArticleRole.Summary): item.summary,
-            int(_ArticleRole.Published): row.published_full,
-            int(_ArticleRole.PublishedRelative): row.published_relative,
-            int(_ArticleRole.Author): item.author,
-            int(_ArticleRole.Read): item.read,
-        }
-        return mapping.get(int(role))
+        role = int(role)
+        if role == int(_ArticleRole.ItemId):
+            return item.id
+        if role == int(_ArticleRole.SourceId):
+            return item.source_id
+        if role == int(_ArticleRole.SourceTitle):
+            return row.source_title
+        if role == int(_ArticleRole.Title):
+            return item.title or "Senza titolo"
+        if role == int(_ArticleRole.Link):
+            return item.link
+        if role == int(_ArticleRole.Summary):
+            return item.summary
+        if role == int(_ArticleRole.Published):
+            return item.published.astimezone().strftime("%d/%m/%Y %H:%M")
+        if role == int(_ArticleRole.PublishedRelative):
+            return _relative_time(item.published, datetime.now(timezone.utc))
+        if role == int(_ArticleRole.Author):
+            return item.author
+        if role == int(_ArticleRole.Read):
+            return item.read
+        return None
 
     def replace_items(self, items: list[FeedItem], source_titles: dict[str, str]) -> None:
-        now = datetime.now(timezone.utc)
-        rows = [
+        self._all_rows = [
             ArticleRowData(
                 item=item,
                 source_title=source_titles.get(item.source_id, item.source_id),
-                published_relative=_relative_time(item.published, now),
-                published_full=item.published.astimezone().strftime("%d/%m/%Y %H:%M"),
             )
             for item in items
         ]
-        self._all_rows = rows
         self._apply_filter()
 
     def set_filter(self, search_query: str, unread_only: bool) -> None:
@@ -203,18 +214,21 @@ class ArticleListModel(QAbstractListModel):
 
     def _apply_filter(self) -> None:
         query = self._search_query
-        rows = [
-            row
-            for row in self._all_rows
-            if (not self._unread_only or not row.item.read)
-            and (
-                not query
-                or query in row.item.title.casefold()
-                or query in row.source_title.casefold()
-                or query in row.item.summary.casefold()
-                or query in row.item.author.casefold()
-            )
-        ]
+        if not query and not self._unread_only:
+            rows = self._all_rows
+        else:
+            rows = [
+                row
+                for row in self._all_rows
+                if (not self._unread_only or not row.item.read)
+                and (
+                    not query
+                    or query in row.item.title.casefold()
+                    or query in row.source_title.casefold()
+                    or query in row.item.summary.casefold()
+                    or query in row.item.author.casefold()
+                )
+            ]
         self.beginResetModel()
         self._visible_rows = rows
         self.endResetModel()
