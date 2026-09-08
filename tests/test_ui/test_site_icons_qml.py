@@ -18,6 +18,14 @@ def test_accent_icon_component_colorizes_without_desaturation_or_shadow() -> Non
     assert "shadowEnabled" not in source
 
 
+def test_accent_icon_bounds_decoded_texture_to_render_size() -> None:
+    source = (QML / "AccentIcon.qml").read_text(encoding="utf-8")
+    assert "sourceSize: Qt.size(" in source
+    assert "Screen.devicePixelRatio" in source
+    assert "mipmap: false" in source
+    assert "asynchronous: true" in source
+
+
 def test_program_mark_is_used_in_header_and_all_articles_row() -> None:
     main = (QML / "Main.qml").read_text(encoding="utf-8")
     row = (QML / "SourceRow.qml").read_text(encoding="utf-8")
