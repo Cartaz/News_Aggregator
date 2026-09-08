@@ -46,10 +46,6 @@ class PreferencesAdapter(QObject):
     def fontScaleFactor(self) -> float:  # noqa: N802
         return float(self._controller.settings.font_scale_factor)
 
-    @Property(str, notify=changed)
-    def fontFamily(self) -> str:  # noqa: N802
-        return self._controller.settings.font_family
-
     @Property(int, notify=changed)
     def sidebarWidth(self) -> int:  # noqa: N802
         return int(self._controller.settings.source_split_width)
@@ -58,7 +54,7 @@ class PreferencesAdapter(QObject):
         """Notify QML that canonical settings may have changed."""
         self.changed.emit()
 
-    @Slot(int, bool, bool, bool, float, str)
+    @Slot(int, bool, bool, bool, float)
     def saveSettings(
         self,
         refresh_interval: int,
@@ -66,7 +62,6 @@ class PreferencesAdapter(QObject):
         notify_new_items: bool,
         close_to_tray: bool,
         font_scale_factor: float,
-        font_family: str,
     ) -> None:  # noqa: N802
         changes = {
             "refresh_interval_minutes": int(refresh_interval),
@@ -74,7 +69,6 @@ class PreferencesAdapter(QObject):
             "notify_new_items": bool(notify_new_items),
             "close_to_tray": bool(close_to_tray),
             "font_scale_factor": float(font_scale_factor),
-            "font_family": str(font_family).strip(),
         }
         self._submit("save", changes)
 
