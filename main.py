@@ -7,18 +7,12 @@ import os
 import sys
 from logging.handlers import RotatingFileHandler
 
-from PySide6.QtGui import QFont, QIcon
-from PySide6.QtWidgets import QApplication
-
-from config.constants import AppMeta, Paths
-from core.app_controller import AppController
-from ui.controller import UiController
-from ui.native_actions import open_external_url
-from ui.tray import TrayIcon
-from ui.window import QmlMainWindow
+from core.native_memory import bootstrap_allocator
 
 
 def setup_logging() -> None:
+    from config.constants import Paths
+
     Paths.ensure_user_dirs()
     level_name = os.environ.get("NEWS_AGGREGATOR_LOG_LEVEL", "INFO").upper()
     level = getattr(logging, level_name, logging.INFO)
@@ -45,6 +39,20 @@ def setup_logging() -> None:
 
 
 def main() -> int:
+    # This must run before importing Qt, networking or the application graph so
+    # the replacement Linux/glibc process starts with the measured arena limit.
+    bootstrap_allocator()
+
+    from PySide6.QtGui import QFont, QIcon
+    from PySide6.QtWidgets import QApplication
+
+    from config.constants import AppMeta, Paths
+    from core.app_controller import AppController
+    from ui.controller import UiController
+    from ui.native_actions import open_external_url
+    from ui.tray import TrayIcon
+    from ui.window import QmlMainWindow
+
     setup_logging()
     logger = logging.getLogger(__name__)
     logger.info("Avvio %s v%s", AppMeta.NAME, AppMeta.VERSION)
