@@ -32,3 +32,15 @@ def test_qml_models_avoid_per_role_mapping_allocations() -> None:
     assert models.count("@dataclass(frozen=True, slots=True)") >= 2
     assert "mapping: dict[int, Any]" not in models
     assert "if not query and not self._unread_only:" in models
+
+
+def test_tray_releases_recreatable_qt_quick_resources() -> None:
+    window = (ROOT / "ui" / "window.py").read_text(encoding="utf-8")
+    assert "setPersistentGraphics(False)" in window
+    assert "setPersistentSceneGraph(False)" in window
+    assert "releaseResources()" in window
+    assert "collectGarbage()" in window
+    assert "trimComponentCache()" in window
+    assert "_memory_trim_timer.start()" in window
+    assert "setPersistentGraphics(True)" in window
+    assert "setPersistentSceneGraph(True)" in window
