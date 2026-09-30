@@ -42,11 +42,19 @@ class FeedManager:
         self._sources: dict[str, FeedSource] = {}
         self._source_epochs: dict[str, int] = {}
         self._next_source_epoch = 0
+        self._max_items_per_feed = FeedDefaults.MAX_ITEMS_PER_FEED
         self._lock = threading.RLock()
         self._write_lock = threading.Lock()
         self._event_sink = event_sink
         Paths.ensure_user_dirs()
         self.load()
+
+    def set_max_items_per_feed(self, limit: int) -> None:
+        """Apply the validated storage limit to subsequent refreshes."""
+        if type(limit) is not int or not 1 <= limit <= FeedDefaults.MAX_SUPPORTED_ITEMS_PER_FEED:
+            raise ValueError("Limite articoli per feed non valido")
+        with self._lock:
+            self._max_items_per_feed = limit
 
     @staticmethod
     def _snapshot_source(source: FeedSource) -> FeedSource:
@@ -101,7 +109,7 @@ class FeedManager:
             return
         try:
             raw: Any = json.loads(self._path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
             logger.warning("File feed corrotto o non leggibile, raccolta invariata: %s", exc)
             return
         if not isinstance(raw, dict):
@@ -378,9 +386,13 @@ class FeedManager:
         visible_items: list[FeedItem] | None = None
         if not result.not_modified:
             cutoff = self._age_cutoff()
-            visible_items = [
-                item for item in result.items if item.published >= cutoff
-            ][: FeedDefaults.MAX_ITEMS_PER_FEED]
+            with self._lock:
+                limit = self._max_items_per_feed
+            visible_items = sorted(
+                (item for item in result.items if item.published >= cutoff),
+                key=lambda item: item.published,
+                reverse=True,
+            )[:limit]
 
         try:
             committed = self._commit_refresh_result(

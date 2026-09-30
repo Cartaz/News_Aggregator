@@ -40,12 +40,14 @@ class AppController:
     ) -> None:
         self._feed_manager = feed_manager or FeedManager()
         self._settings_manager = settings_manager or SettingsManager()
+        self._feed_manager.set_max_items_per_feed(self.settings.max_items_per_feed)
         self._mutation_worker = MutationWorker()
         self._refresh_thread: threading.Thread | None = None
         self._refresh_cancel_event: threading.Event | None = None
         self._refresh_lock = threading.RLock()
         self._refresh_state = RefreshState()
         self._auto_timer: threading.Timer | None = None
+        self._auto_generation = 0
         self._event_lock = threading.RLock()
         self._event_listeners: list[AppEventListener] = []
         self._shutting_down = False
@@ -85,6 +87,8 @@ class AppController:
         self._emit_event(event_name, payload)
 
     def _on_settings_changed(self, settings: Settings) -> None:
+        settings = self.settings
+        self._feed_manager.set_max_items_per_feed(settings.max_items_per_feed)
         self._emit_event(
             "config_changed",
             {"source": AppMeta.NAME, "settings": asdict(settings)},
@@ -110,6 +114,12 @@ class AppController:
     def get_log_tail(self, max_lines: int = 250) -> dict[str, object]:
         """Return a bounded application-log tail through the core boundary."""
         return read_log_tail(Paths.LOG_FILE, max_lines)
+
+    def get_log_tail_async(
+        self, max_lines: int = 250, on_done: MutationDone | None = None,
+    ) -> str | None:
+        """Read diagnostics on the owned I/O worker, outside the GUI thread."""
+        return self._submit_mutation(lambda: self.get_log_tail(max_lines), on_done)
 
     def update_settings(self, changes: Mapping[str, Any]) -> Settings:
         """Apply validated settings and reschedule refresh when cadence changes."""
@@ -172,6 +182,16 @@ class AppController:
                 installed = False
             else:
                 self._refresh_thread = worker
+                # Starting under the ownership lock prevents shutdown from
+                # observing an installed but not-yet-started worker.
+                try:
+                    worker.start()
+                except Exception:
+                    self._refresh_thread = None
+                    self._refresh_cancel_event = None
+                    self._refresh_state.finish()
+                    logger.exception("Avvio worker refresh fallito")
+                    raise
                 installed = True
         if not installed:
             self._emit_refresh_state()
@@ -395,7 +415,6 @@ class AppController:
         )
         if not self._install_refresh_worker(thread, cancel_event):
             return False
-        thread.start()
         return True
 
     def refresh_all_async(
@@ -416,24 +435,18 @@ class AppController:
         )
         if not self._install_refresh_worker(thread, cancel_event):
             return False
-        thread.start()
         return True
 
     def start_auto_refresh(self) -> None:
         with self._refresh_lock:
             if self._shutting_down:
                 return
-        self._stop_auto_refresh()
-        interval = self.settings.refresh_interval_minutes * 60
-        if interval < 30:
-            interval = FeedDefaults.REFRESH_INTERVAL_SECONDS
-        timer = threading.Timer(interval, self._on_auto_refresh)
-        timer.daemon = True
-        with self._refresh_lock:
-            if self._shutting_down:
-                return
+            self._stop_auto_refresh()
+            interval = self.settings.refresh_interval_minutes * 60
+            timer = threading.Timer(interval, self._on_auto_refresh, args=(self._auto_generation,))
+            timer.daemon = True
             self._auto_timer = timer
-        timer.start()
+            timer.start()
         logger.info("Auto-refresh schedulato ogni %d secondi", interval)
 
     def stop_auto_refresh(self) -> None:
@@ -441,19 +454,20 @@ class AppController:
 
     def _stop_auto_refresh(self) -> None:
         with self._refresh_lock:
+            self._auto_generation += 1
             timer = self._auto_timer
             self._auto_timer = None
         if timer:
             timer.cancel()
 
-    def _on_auto_refresh(self) -> None:
+    def _on_auto_refresh(self, generation: int) -> None:
         with self._refresh_lock:
-            if self._shutting_down:
+            if self._shutting_down or generation != self._auto_generation:
                 return
-        logger.info("Auto-refresh triggered")
-        self.start_auto_refresh()
-        if not self.refresh_all_async():
-            logger.info("Auto-refresh saltato: aggiornamento già in corso")
+            logger.info("Auto-refresh triggered")
+            self.start_auto_refresh()
+            if not self.refresh_all_async():
+                logger.info("Auto-refresh saltato: aggiornamento già in corso")
 
     def _refresh_feed_worker(
         self,
@@ -510,7 +524,7 @@ class AppController:
                 )
             except Exception as exc:
                 logger.error("Refresh tutti fallito: %s", exc, exc_info=True)
-                result = {"success": 0, "failed": 0, "errors": [str(exc)]}
+                result = {"success": 0, "failed": 1, "errors": [str(exc)]}
             finally:
                 self._finish_refresh()
             if on_done:

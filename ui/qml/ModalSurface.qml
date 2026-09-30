@@ -39,8 +39,8 @@ Item {
                     anchors.left: parent.left
                     anchors.verticalCenter: parent.verticalCenter
                     spacing: 2
-                    Text { text: root.eyebrow.toUpperCase(); color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: Math.round(10 * Theme.fontScale); font.bold: true; font.letterSpacing: 1.2 }
-                    Text { text: root.title; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: Math.round(21 * Theme.fontScale); font.weight: Font.DemiBold }
+                    Text { textFormat: Text.PlainText; text: root.eyebrow.toUpperCase(); color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: Math.round(10 * Theme.fontScale); font.bold: true; font.letterSpacing: 1.2 }
+                    Text { textFormat: Text.PlainText; text: root.title; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: Math.round(21 * Theme.fontScale); font.weight: Font.DemiBold }
                 }
                 NeuButton { anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; width: 38; height: 38; label: "×"; onClicked: root.closeRequested() }
             }

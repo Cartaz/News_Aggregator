@@ -15,6 +15,9 @@ class _FeedManager:
     def __init__(self) -> None:
         self.event_sink = None
 
+    def set_max_items_per_feed(self, limit: int) -> None:
+        self.max_items_per_feed = limit
+
     def set_event_sink(self, event_sink) -> None:  # type: ignore[no-untyped-def]
         self.event_sink = event_sink
 

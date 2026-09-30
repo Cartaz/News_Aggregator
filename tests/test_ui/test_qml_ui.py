@@ -50,12 +50,12 @@ def test_theme_tokens_match_dark_neumorphism_contract() -> None:
     assert "radiusSM: 12" in source
 
 
-def test_typography_scales_with_window_and_uses_cantarell() -> None:
+def test_typography_scales_with_window_and_uses_noto_sans() -> None:
     theme = THEME_QML.read_text(encoding="utf-8")
     main = MAIN_QML.read_text(encoding="utf-8")
     installer = INSTALLER.read_text(encoding="utf-8")
-    assert 'availableFontFamilies.indexOf("Cantarell")' in theme
-    assert '"Cantarell"' in theme
+    assert 'fontFamily: "Noto Sans"' in theme
+    assert '"Noto Sans"' in theme
     assert "fontChoices" not in theme
     assert "userFontFamily" not in theme
     assert "property real userFontScale" in theme
@@ -64,8 +64,8 @@ def test_typography_scales_with_window_and_uses_cantarell() -> None:
     assert "function updateResponsiveTypography()" in main
     assert "onWidthChanged: updateResponsiveTypography()" in main
     assert "Theme.userFontScale = backend.preferences.fontScaleFactor" in main
-    assert "cantarell-fonts" in installer
-    assert "fonts-cantarell" in installer
+    assert "noto-fonts" in installer
+    assert "fonts-noto-core" in installer
 
 
 def test_settings_no_longer_expose_font_picker() -> None:

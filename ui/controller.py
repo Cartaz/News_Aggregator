@@ -12,6 +12,7 @@ from PySide6.QtCore import QObject, Property, Qt, Signal, Slot
 
 from config.constants import AppMeta
 from core.app_controller import AppController
+from core.exceptions import FeedNotFoundError
 from core.models import FeedItem, FeedSource
 from core.site_icon_service import SiteIconService
 from ui.diagnostics import DiagnosticsAdapter
@@ -145,7 +146,7 @@ class UiController(QObject):
             return ""
         try:
             return self._controller.get_feed(row.identifier).category
-        except Exception:
+        except FeedNotFoundError:
             return ""
 
     @Property(str, notify=selectedSourceChanged)
@@ -155,7 +156,7 @@ class UiController(QObject):
             return ""
         try:
             return self._controller.get_feed(row.identifier).url
-        except Exception:
+        except FeedNotFoundError:
             return ""
 
     @Property(bool, notify=articleSelectionChanged)
@@ -255,6 +256,18 @@ class UiController(QObject):
         self.unreadCountChanged.emit(self._controller.get_total_unread_count())
 
     def _rebuild_sources(self, feeds: list[FeedSource], categories: list[str]) -> None:
+        # Resolve selection before building flags; metadata can change outside
+        # the adapter, and a removed scope must select the aggregate row.
+        if self._scope_kind == "feed":
+            current = next((feed for feed in feeds if feed.id == self._scope_id), None)
+            if current is None:
+                self._scope_kind, self._scope_id = "all", ""
+            else:
+                self._scope_title = current.title or current.url
+        elif self._scope_kind == "category" and self._scope_id not in categories:
+            self._scope_kind, self._scope_id = "all", ""
+        if self._scope_kind == "all":
+            self._scope_title = "Tutti gli articoli"
         unread_by_category: dict[str, int] = {}
         for feed in feeds:
             if feed.category:
@@ -547,6 +560,8 @@ class UiController(QObject):
         error_message: str,
         result_id: str,
     ) -> None:
+        if self._shutdown:
+            return
         if not success:
             message = error_message or "Operazione non riuscita"
             if action == "unread_filter":
@@ -644,9 +659,14 @@ class UiController(QObject):
         if event_name == "config_changed":
             self._unread_only = bool(self._controller.settings.show_unread_only)
             self._articles.set_filter(self._search_query, self._unread_only)
+            self._restore_selected_article()
             self._preferences.sync()
             self.filterChanged.emit()
             self.scopeChanged.emit()
+            self.articleSelectionChanged.emit()
+            return
+        if event_name in {"item_read_changed", "feed_renamed", "feed_category_changed", "feed_updated", "feed_removed"}:
+            self.sync()
             return
         if event_name == "new_items_available":
             source_id = str(data.get("source_id", ""))
@@ -697,6 +717,7 @@ class UiController(QObject):
         if self._shutdown:
             return
         self._shutdown = True
+        self._diagnostics.clear()
         self._site_icons.shutdown()
         self._controller.unregister_event_listener(self._relay_controller_event)
 

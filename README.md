@@ -28,7 +28,7 @@ La UI vive in `ui/qml/` e usa un unico design system Dark Neumorphism:
 - superficie `rgb(20,20,20)` / `#141414`;
 - accento `rgb(255,102,0)` / `#ff6600`;
 - testo `#e1e1e1`, `#878787`, `#5a5a5a`;
-- font UI canonico **Cantarell**;
+- font UI canonico **Noto Sans**;
 - raggi 28 / 22 / 16 / 12 px;
 - pannelli principali raised, righe soft-raised, campi/pressioni/selezioni inset;
 - selezione = profondità inset + testo/bordo arancione con glow leggero e semitrasparente;
@@ -59,7 +59,7 @@ Non vengono usati WebEngine, QWebChannel, HTML, CSS o JavaScript di frontend.
 - Python 3.12 o superiore;
 - accesso a Internet durante l'installazione delle dipendenze e per aggiornare feed/favicon;
 - stack grafico Qt/OpenGL funzionante;
-- privilegi amministrativi disponibili solo se `install.sh` deve installare Cantarell tramite il package manager di sistema.
+- privilegi amministrativi disponibili solo se `install.sh` deve installare Noto Sans tramite il package manager di sistema.
 
 ## Installazione
 
@@ -73,14 +73,15 @@ chmod +x install.sh
 Lo script:
 
 1. verifica Python 3.12+;
-2. verifica il font Cantarell e, se manca, lo installa automaticamente sui sistemi supportati (`cantarell-fonts` su Arch/CachyOS, `fonts-cantarell` su Debian/Ubuntu, `abattis-cantarell-vf-fonts` su Fedora);
+2. verifica il font Noto Sans e, se manca, lo installa automaticamente sui sistemi supportati (`noto-fonts` su Arch/CachyOS, `fonts-noto-core` su Debian/Ubuntu, `google-noto-sans-fonts` su Fedora);
 3. crea, riusa o ripara `.venv`;
 4. installa le dipendenze runtime;
-5. individua il `qsb` abbinato a PySide6 (con fallback ai percorsi Qt di sistema);
+5. usa esclusivamente `pyside6-qsb` della stessa `.venv` di PySide6;
 6. compila `ui/qml/shaders/neumorphic_inset.frag` in un pacchetto multi-backend `.qsb` tramite `--qt6`;
-7. verifica che il pacchetto contenga una variante GLSL e che i moduli Qt Quick critici siano importabili.
+7. verifica che il pacchetto contenga una variante GLSL e che i moduli Qt Quick critici siano importabili;
+8. carica `Main.qml` offscreen con percorsi XDG temporanei, senza modificare i dati utente.
 
-Su Arch/CachyOS, se il tool QSB non fosse disponibile dal virtualenv, il pacchetto di sistema è `qt6-shadertools`.
+Se `pyside6-qsb` manca, reinstalla PySide6 nella `.venv`: un compilatore Qt di sistema potrebbe produrre un pacchetto incompatibile con il runtime. Su Debian/Ubuntu il plugin desktop X11 richiede anche `libxcb-cursor0` e le librerie Qt/OpenGL indicate nella CI.
 
 ## Avvio
 
@@ -99,6 +100,10 @@ Non serve attivare la virtualenv con `source` e non serve prefissare manualmente
 ```
 
 La CI separa i test core/contratti dagli E2E Qt Quick reali, eseguiti sotto Xvfb con rendering software OpenGL.
+
+L'integrazione HTTP usa un server locale reale per verificare discovery, cache condizionale e persistenza. Le prove UI includono focus, filtri, aggiornamenti esterni, log asincrono e chiusura. I contenuti sono mostrati sempre come testo semplice; senza tray disponibile la finestra non viene nascosta e la chiusura termina l'applicazione.
+
+Il rapporto dell'audit del 29 settembre 2026 è in [docs/audit-2026-09-29.md](docs/audit-2026-09-29.md).
 
 ## Struttura
 

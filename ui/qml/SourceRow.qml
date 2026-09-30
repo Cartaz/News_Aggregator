@@ -62,7 +62,7 @@ Item {
         tint: Theme.accent
         iconOpacity: root.selected ? 1.0 : 0.72
     }
-    Text {
+    Text { textFormat: Text.PlainText;
         x: 12
         anchors.verticalCenter: parent.verticalCenter
         visible: root.kind === "category" || (root.kind === "feed" && root.iconSource.length === 0)
@@ -71,7 +71,7 @@ Item {
         font.family: Theme.fontFamily
         font.pixelSize: Math.round((root.kind === "feed" ? 14 : 12) * Theme.fontScale)
     }
-    Text {
+    Text { textFormat: Text.PlainText;
         x: 35
         width: parent.width - 84
         anchors.verticalCenter: parent.verticalCenter
@@ -90,7 +90,7 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         cornerRadius: 11
         depth: 4.6
-        Text {
+        Text { textFormat: Text.PlainText;
             anchors.centerIn: parent
             text: root.unreadCount > 99 ? "99+" : String(root.unreadCount)
             color: root.selected ? Theme.accent : Theme.textSecondary

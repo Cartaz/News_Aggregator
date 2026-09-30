@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Iterable
 
 from core.item_identity import canonicalize_url, fallback_identity_key, make_item_id
+from config.constants import FeedDefaults
 
 
 def _utcnow() -> datetime:
@@ -85,7 +86,8 @@ class FeedSource:
 
     @property
     def unread_count(self) -> int:
-        return sum(1 for item in self.items if not item.read)
+        cutoff = _utcnow() - timedelta(hours=FeedDefaults.MAX_ITEM_AGE_HOURS)
+        return sum(1 for item in self.items if not item.read and item.published >= cutoff)
 
     def replace_items(self, new_items: Iterable[FeedItem]) -> list[FeedItem]:
         """Sostituisce gli articoli preservando lettura e migrazione ID.

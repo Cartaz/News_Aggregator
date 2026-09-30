@@ -45,7 +45,7 @@ Item {
         Behavior on opacity { NumberAnimation { duration: 110 } }
     }
 
-    Text {
+    Text { textFormat: Text.PlainText;
         x: 12
         y: 11
         width: parent.width - 40
@@ -67,7 +67,7 @@ Item {
         color: Theme.accent
     }
 
-    Text {
+    Text { textFormat: Text.PlainText;
         x: 12
         y: 40
         width: parent.width - 78
@@ -78,7 +78,7 @@ Item {
         font.pixelSize: Math.round(10 * Theme.fontScale)
     }
 
-    Text {
+    Text { textFormat: Text.PlainText;
         anchors.right: parent.right
         anchors.rightMargin: 12
         y: 40

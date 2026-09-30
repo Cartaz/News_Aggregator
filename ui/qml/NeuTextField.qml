@@ -8,6 +8,7 @@ Item {
     property string label: ""
     property bool password: false
     signal accepted()
+    function focusInput() { input.forceActiveFocus() }
     implicitHeight: 42
 
     InsetSurface { anchors.fill: parent; cornerRadius: Theme.radiusMD; active: input.activeFocus; depth: 6.3 }
@@ -31,7 +32,7 @@ Item {
         echoMode: root.password ? TextInput.Password : TextInput.Normal
         onAccepted: root.accepted()
     }
-    Text {
+    Text { textFormat: Text.PlainText;
         anchors.fill: input
         verticalAlignment: Text.AlignVCenter
         visible: input.text.length === 0 && !input.activeFocus

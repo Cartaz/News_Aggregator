@@ -154,15 +154,15 @@ Item {
         id: addBody
         Item {
             anchors.fill: parent
-            Component.onCompleted: Qt.callLater(function() { addUrl.forceActiveFocus() })
+            Component.onCompleted: Qt.callLater(function() { addUrl.focusInput() })
             Column {
                 anchors.fill: parent
                 spacing: 14
-                Text { text: "URL del feed o del sito"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(11 * Theme.fontScale) }
-                NeuTextField { id: addUrl; width: parent.width; label: "URL del feed o del sito"; placeholderText: "https://example.com/feed.xml"; onAccepted: addTitle.forceActiveFocus() }
-                Text { text: "Titolo personalizzato"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(11 * Theme.fontScale) }
+                Text { textFormat: Text.PlainText; text: "URL del feed o del sito"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(11 * Theme.fontScale) }
+                NeuTextField { id: addUrl; width: parent.width; label: "URL del feed o del sito"; placeholderText: "https://example.com/feed.xml"; onAccepted: addTitle.focusInput() }
+                Text { textFormat: Text.PlainText; text: "Titolo personalizzato"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(11 * Theme.fontScale) }
                 NeuTextField { id: addTitle; width: parent.width; label: "Titolo personalizzato"; placeholderText: "Opzionale" }
-                Text { width: parent.width; text: "Se il sito espone un feed RSS/Atom diretto, usa quell’indirizzo."; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: Math.round(11 * Theme.fontScale); wrapMode: Text.WordWrap }
+                Text { textFormat: Text.PlainText; width: parent.width; text: "Se il sito espone un feed RSS/Atom diretto, usa quell’indirizzo."; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: Math.round(11 * Theme.fontScale); wrapMode: Text.WordWrap }
                 Item { width: 1; height: 10 }
                 Row {
                     anchors.right: parent.right
@@ -181,16 +181,16 @@ Item {
             Component.onCompleted: {
                 editTitle.text = backend.selectedSourceTitle
                 editCategory.text = backend.selectedSourceCategory
-                Qt.callLater(function() { editTitle.forceActiveFocus() })
+                Qt.callLater(function() { editTitle.focusInput() })
             }
             Column {
                 anchors.fill: parent
                 spacing: 14
-                Text { text: "Titolo"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(11 * Theme.fontScale) }
+                Text { textFormat: Text.PlainText; text: "Titolo"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(11 * Theme.fontScale) }
                 NeuTextField { id: editTitle; width: parent.width; label: "Titolo" }
-                Text { text: "Categoria"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(11 * Theme.fontScale) }
+                Text { textFormat: Text.PlainText; text: "Categoria"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(11 * Theme.fontScale) }
                 NeuTextField { id: editCategory; width: parent.width; label: "Categoria"; placeholderText: "Es. Tecnologia" }
-                Text { width: parent.width; text: backend.selectedSourceUrl; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: Math.round(10 * Theme.fontScale); wrapMode: Text.WrapAnywhere }
+                Text { textFormat: Text.PlainText; width: parent.width; text: backend.selectedSourceUrl; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: Math.round(10 * Theme.fontScale); wrapMode: Text.WrapAnywhere }
                 Item { width: 1; height: 10 }
                 Row {
                     anchors.right: parent.right
@@ -209,7 +209,7 @@ Item {
             Column {
                 anchors.fill: parent
                 spacing: 20
-                Text { width: parent.width; text: "Rimuovere “" + backend.selectedSourceTitle + "” e gli articoli salvati associati a questa sorgente?"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(13 * Theme.fontScale); wrapMode: Text.WordWrap }
+                Text { textFormat: Text.PlainText; width: parent.width; text: "Rimuovere “" + backend.selectedSourceTitle + "” e gli articoli salvati associati a questa sorgente?"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(13 * Theme.fontScale); wrapMode: Text.WordWrap }
                 Row {
                     anchors.right: parent.right
                     spacing: 10
@@ -227,7 +227,7 @@ Item {
             Column {
                 anchors.fill: parent
                 spacing: 12
-                Text { text: "Aggiornamento automatico"; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: Math.round(13 * Theme.fontScale); font.bold: true }
+                Text { textFormat: Text.PlainText; text: "Aggiornamento automatico"; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: Math.round(13 * Theme.fontScale); font.bold: true }
                 Row {
                     spacing: 6
                     Repeater {
@@ -244,25 +244,25 @@ Item {
                 Rectangle { width: parent.width; height: 1; color: Theme.line }
                 Row {
                     width: parent.width; spacing: 12
-                    Text { width: parent.width - 60; text: "Segna letto quando cambi articolo"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(12 * Theme.fontScale); anchors.verticalCenter: parent.verticalCenter }
+                    Text { textFormat: Text.PlainText; width: parent.width - 60; text: "Segna letto quando cambi articolo"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(12 * Theme.fontScale); anchors.verticalCenter: parent.verticalCenter }
                     NeuToggle { checked: root.settingsAutoRead; accessibleName: "Segna letto quando cambi articolo"; onToggled: function(v) { root.settingsAutoRead = v } }
                 }
                 Row {
                     width: parent.width; spacing: 12
-                    Text { width: parent.width - 60; text: "Notifiche desktop per nuovi articoli"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(12 * Theme.fontScale); anchors.verticalCenter: parent.verticalCenter }
+                    Text { textFormat: Text.PlainText; width: parent.width - 60; text: "Notifiche desktop per nuovi articoli"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(12 * Theme.fontScale); anchors.verticalCenter: parent.verticalCenter }
                     NeuToggle { checked: root.settingsNotify; accessibleName: "Notifiche desktop per nuovi articoli"; onToggled: function(v) { root.settingsNotify = v } }
                 }
                 Row {
                     width: parent.width; spacing: 12
-                    Text { width: parent.width - 60; text: "Chiudi la finestra nel tray"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(12 * Theme.fontScale); anchors.verticalCenter: parent.verticalCenter }
+                    Text { textFormat: Text.PlainText; width: parent.width - 60; text: "Chiudi la finestra nel tray"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(12 * Theme.fontScale); anchors.verticalCenter: parent.verticalCenter }
                     NeuToggle { checked: root.settingsTray; accessibleName: "Chiudi la finestra nel tray"; onToggled: function(v) { root.settingsTray = v } }
                 }
                 Rectangle { width: parent.width; height: 1; color: Theme.line }
                 Row {
                     width: parent.width; spacing: 10
-                    Text { width: 180; text: "Dimensione testo"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(12 * Theme.fontScale); anchors.verticalCenter: parent.verticalCenter }
+                    Text { textFormat: Text.PlainText; width: 180; text: "Dimensione testo"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(12 * Theme.fontScale); anchors.verticalCenter: parent.verticalCenter }
                     NeuButton { width: 36; height: 32; label: "−"; onClicked: root.settingsScale = Math.max(0.75, Math.round((root.settingsScale - 0.05) * 100) / 100) }
-                    InsetSurface { width: 70; height: 32; cornerRadius: 12; Text { anchors.centerIn: parent; text: Math.round(root.settingsScale * 100) + "%"; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: Math.round(11 * Theme.fontScale) } }
+                    InsetSurface { width: 70; height: 32; cornerRadius: 12; Text { textFormat: Text.PlainText; anchors.centerIn: parent; text: Math.round(root.settingsScale * 100) + "%"; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: Math.round(11 * Theme.fontScale) } }
                     NeuButton { width: 36; height: 32; label: "+"; onClicked: root.settingsScale = Math.min(1.5, Math.round((root.settingsScale + 0.05) * 100) / 100) }
                     Item { width: 18; height: 1 }
                     NeuButton { width: 90; height: 34; label: "Apri log"; textSize: 11; onClicked: root.openLog() }
@@ -285,13 +285,13 @@ Item {
             Column {
                 anchors.fill: parent
                 spacing: 10
-                Text { width: parent.width; text: backend.diagnostics.path; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: Math.round(10 * Theme.fontScale); elide: Text.ElideMiddle }
+                Text { textFormat: Text.PlainText; width: parent.width; text: backend.diagnostics.path; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: Math.round(10 * Theme.fontScale); elide: Text.ElideMiddle }
                 InsetSurface {
                     width: parent.width; height: parent.height - 70; cornerRadius: Theme.radiusMD; depth: 6.0
                     Flickable {
                         anchors.fill: parent; anchors.margins: 12; clip: true
                         contentWidth: width; contentHeight: logTextEdit.height
-                        TextEdit {
+                        TextEdit { textFormat: TextEdit.PlainText;
                             id: logTextEdit
                             width: parent.width
                             text: backend.diagnostics.text.length ? backend.diagnostics.text : "Il log è vuoto."
