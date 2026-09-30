@@ -35,8 +35,8 @@ void main() {
     float lightWeight = pow(max(dot(normal, lightDirection), 0.0), 1.18) * edge;
     vec3 rgb = surfaceColor.rgb;
     rgb *= 1.0 - shadowDark.a * darkWeight;
-    rgb += shadowLight.rgb * lightWeight;
+    rgb += shadowLight.rgb * shadowLight.a * lightWeight;
     float accentBand = exp(-inside / 1.85) * stateActive;
-    rgb += accentColor.rgb * accentBand * 0.52;
+    rgb += accentColor.rgb * accentColor.a * accentBand * 0.52;
     fragColor = vec4(rgb * coverage, coverage) * qt_Opacity;
 }

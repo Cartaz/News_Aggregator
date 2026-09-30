@@ -51,7 +51,7 @@ Window {
         target: backend
         function onToastRequested(title, message, error) { root.showToast(title, message, error) }
         function onArticleSelectionChanged() {
-            if (backend.selectedArticleRow >= 0 && articleList.currentIndex !== backend.selectedArticleRow)
+            if (articleList.currentIndex !== backend.selectedArticleRow)
                 articleList.currentIndex = backend.selectedArticleRow
         }
         function onSelectedSourceChanged() {
@@ -117,8 +117,8 @@ Window {
                         Column {
                             Layout.fillWidth: true
                             spacing: 1
-                            Text { width: parent.width; text: backend.appName; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: Math.round(16 * Theme.fontScale); font.weight: Font.DemiBold; elide: Text.ElideRight }
-                            Text { width: parent.width; text: backend.scopeTitle; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(11 * Theme.fontScale); elide: Text.ElideRight }
+                            Text { textFormat: Text.PlainText; width: parent.width; text: backend.appName; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: Math.round(16 * Theme.fontScale); font.weight: Font.DemiBold; elide: Text.ElideRight }
+                            Text { textFormat: Text.PlainText; width: parent.width; text: backend.scopeTitle; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(11 * Theme.fontScale); elide: Text.ElideRight }
                         }
                     }
 
@@ -127,7 +127,7 @@ Window {
                         Layout.minimumWidth: root.denseLayout ? 180 : 230
                         Layout.preferredHeight: 42
                         InsetSurface { anchors.fill: parent; cornerRadius: Theme.radiusMD; active: searchInput.activeFocus; depth: 5.2 }
-                        Text { x: 14; anchors.verticalCenter: parent.verticalCenter; text: "⌕"; color: searchInput.activeFocus ? Theme.accent : Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(18 * Theme.fontScale) }
+                        Text { textFormat: Text.PlainText; x: 14; anchors.verticalCenter: parent.verticalCenter; text: "⌕"; color: searchInput.activeFocus ? Theme.accent : Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(18 * Theme.fontScale) }
                         TextInput {
                             id: searchInput
                             objectName: "searchInput"
@@ -149,7 +149,7 @@ Window {
                             Accessible.focusable: true
                             onTextEdited: backend.setSearchQuery(text)
                         }
-                        Text { x: 40; anchors.verticalCenter: parent.verticalCenter; visible: searchInput.text.length === 0 && !searchInput.activeFocus; text: "Cerca titolo, fonte o testo…"; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: Math.round(13 * Theme.fontScale) }
+                        Text { textFormat: Text.PlainText; x: 40; anchors.verticalCenter: parent.verticalCenter; visible: searchInput.text.length === 0 && !searchInput.activeFocus; text: "Cerca titolo, fonte o testo…"; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: Math.round(13 * Theme.fontScale) }
                         RaisedSurface {
                             visible: !root.denseLayout
                             width: 48
@@ -159,7 +159,7 @@ Window {
                             anchors.verticalCenter: parent.verticalCenter
                             cornerRadius: 12
                             soft: true
-                            Text { anchors.centerIn: parent; text: "Ctrl F"; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: Math.round(9 * Theme.fontScale); font.weight: Font.DemiBold }
+                            Text { textFormat: Text.PlainText; anchors.centerIn: parent; text: "Ctrl F"; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: Math.round(9 * Theme.fontScale); font.weight: Font.DemiBold }
                         }
                     }
 
@@ -225,8 +225,8 @@ Window {
                             Layout.fillWidth: true
                             Layout.preferredHeight: 48
                             Column {
-                                Text { text: "RACCOLTA"; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: Math.round(10 * Theme.fontScale); font.bold: true; font.letterSpacing: 1.2 }
-                                Text { text: "Sorgenti"; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: Math.round(19 * Theme.fontScale); font.weight: Font.DemiBold }
+                                Text { textFormat: Text.PlainText; text: "RACCOLTA"; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: Math.round(10 * Theme.fontScale); font.bold: true; font.letterSpacing: 1.2 }
+                                Text { textFormat: Text.PlainText; text: "Sorgenti"; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: Math.round(19 * Theme.fontScale); font.weight: Font.DemiBold }
                             }
                             Item { Layout.fillWidth: true }
                             NeuButton { Layout.preferredWidth: 42; Layout.preferredHeight: 42; label: "+"; accent: true; onClicked: dialogs.openAddFeed() }
@@ -259,8 +259,8 @@ Window {
                                 anchors.fill: parent
                                 anchors.margins: 12
                                 spacing: 8
-                                Text { width: parent.width; text: backend.selectedSourceTitle; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: Math.round(12 * Theme.fontScale); font.bold: true; elide: Text.ElideRight }
-                                Text { width: parent.width; text: backend.selectedSourceStatus; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: Math.round(10 * Theme.fontScale); elide: Text.ElideRight }
+                                Text { textFormat: Text.PlainText; width: parent.width; text: backend.selectedSourceTitle; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: Math.round(12 * Theme.fontScale); font.bold: true; elide: Text.ElideRight }
+                                Text { textFormat: Text.PlainText; width: parent.width; text: backend.selectedSourceStatus; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: Math.round(10 * Theme.fontScale); elide: Text.ElideRight }
                                 RowLayout {
                                     width: parent.width
                                     spacing: 6
@@ -325,12 +325,12 @@ Window {
                             anchors.leftMargin: 18
                             anchors.rightMargin: 18
                             Column {
-                                Text { text: "VISTA CORRENTE"; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: Math.round(10 * Theme.fontScale); font.bold: true; font.letterSpacing: 1.2 }
-                                Text { text: backend.scopeTitle; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: Math.round(18 * Theme.fontScale); font.weight: Font.DemiBold; elide: Text.ElideRight; width: root.compactLayout ? 220 : 320 }
-                                Text { text: backend.visibleArticleCount === backend.totalArticleCount ? (backend.totalArticleCount + (backend.totalArticleCount === 1 ? " articolo" : " articoli")) : (backend.visibleArticleCount + " di " + backend.totalArticleCount + " articoli"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(11 * Theme.fontScale) }
+                                Text { textFormat: Text.PlainText; text: "VISTA CORRENTE"; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: Math.round(10 * Theme.fontScale); font.bold: true; font.letterSpacing: 1.2 }
+                                Text { textFormat: Text.PlainText; text: backend.scopeTitle; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: Math.round(18 * Theme.fontScale); font.weight: Font.DemiBold; elide: Text.ElideRight; width: root.compactLayout ? 220 : 320 }
+                                Text { textFormat: Text.PlainText; text: backend.visibleArticleCount === backend.totalArticleCount ? (backend.totalArticleCount + (backend.totalArticleCount === 1 ? " articolo" : " articoli")) : (backend.visibleArticleCount + " di " + backend.totalArticleCount + " articoli"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(11 * Theme.fontScale) }
                             }
                             Item { Layout.fillWidth: true }
-                            Text { visible: !root.denseLayout; text: "Solo non letti"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(12 * Theme.fontScale) }
+                            Text { textFormat: Text.PlainText; visible: !root.denseLayout; text: "Solo non letti"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(12 * Theme.fontScale) }
                             NeuToggle {
                                 Layout.preferredWidth: 46
                                 Layout.preferredHeight: 26
@@ -384,19 +384,19 @@ Window {
                                     selected: ListView.isCurrentItem
                                     onClicked: { articleList.currentIndex = index; backend.selectArticle(index); articleList.forceActiveFocus() }
                                 }
-                                onCurrentIndexChanged: {
-                                    if (activeFocus && currentIndex >= 0 && currentIndex !== backend.selectedArticleRow)
-                                        backend.selectArticle(currentIndex)
-                                }
+                                // Only deliberate navigation changes canonical
+                                // selection; model resets must not mark items read.
+                                Keys.onUpPressed: backend.selectArticle(Math.max(0, backend.selectedArticleRow - 1))
+                                Keys.onDownPressed: backend.selectArticle(Math.min(count - 1, backend.selectedArticleRow + 1))
                             }
 
                             Column {
                                 anchors.centerIn: parent
                                 spacing: 8
                                 visible: backend.visibleArticleCount === 0
-                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: "▤"; color: Theme.textMuted; font.pixelSize: Math.round(28 * Theme.fontScale) }
-                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: "Nessun articolo da mostrare"; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: Math.round(13 * Theme.fontScale); font.bold: true }
-                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: "Aggiorna i feed o modifica i filtri."; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: Math.round(11 * Theme.fontScale) }
+                                Text { textFormat: Text.PlainText; anchors.horizontalCenter: parent.horizontalCenter; text: "▤"; color: Theme.textMuted; font.pixelSize: Math.round(28 * Theme.fontScale) }
+                                Text { textFormat: Text.PlainText; anchors.horizontalCenter: parent.horizontalCenter; text: "Nessun articolo da mostrare"; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: Math.round(13 * Theme.fontScale); font.bold: true }
+                                Text { textFormat: Text.PlainText; anchors.horizontalCenter: parent.horizontalCenter; text: "Aggiorna i feed o modifica i filtri."; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: Math.round(11 * Theme.fontScale) }
                             }
                         }
 
@@ -416,12 +416,12 @@ Window {
 
                                 RowLayout {
                                     Layout.fillWidth: true
-                                    Text { Layout.maximumWidth: Math.max(120, detailPanel.width * 0.55); text: backend.selectedArticleSource; color: Theme.accent; font.family: Theme.fontFamily; font.pixelSize: Math.round(11 * Theme.fontScale); font.bold: true; elide: Text.ElideRight }
+                                    Text { textFormat: Text.PlainText; Layout.maximumWidth: Math.max(120, detailPanel.width * 0.55); text: backend.selectedArticleSource; color: Theme.accent; font.family: Theme.fontFamily; font.pixelSize: Math.round(11 * Theme.fontScale); font.bold: true; elide: Text.ElideRight }
                                     Item { Layout.fillWidth: true }
-                                    Text { text: backend.selectedArticleDate; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: Math.round(11 * Theme.fontScale) }
+                                    Text { textFormat: Text.PlainText; text: backend.selectedArticleDate; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: Math.round(11 * Theme.fontScale) }
                                 }
 
-                                Text {
+                                Text { textFormat: Text.PlainText;
                                     Layout.fillWidth: true
                                     text: backend.selectedArticleTitle
                                     color: Theme.textPrimary
@@ -432,7 +432,7 @@ Window {
                                     wrapMode: Text.WordWrap
                                 }
 
-                                Text { text: backend.selectedArticleAuthor; visible: text.length > 0; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(12 * Theme.fontScale) }
+                                Text { textFormat: Text.PlainText; text: backend.selectedArticleAuthor; visible: text.length > 0; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Math.round(12 * Theme.fontScale) }
                                 Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.line }
 
                                 Flickable {
@@ -441,8 +441,9 @@ Window {
                                     clip: true
                                     contentWidth: width
                                     contentHeight: summaryText.height
-                                    Text {
+                                    Text { textFormat: Text.PlainText;
                                         id: summaryText
+                                        objectName: "summaryText"
                                         width: parent.width
                                         text: backend.selectedArticleSummary
                                         color: Theme.textPrimary
@@ -466,9 +467,9 @@ Window {
                                 anchors.centerIn: parent
                                 spacing: 8
                                 visible: !backend.hasSelectedArticle
-                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: "▤"; color: Theme.textMuted; font.pixelSize: Math.round(32 * Theme.fontScale) }
-                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: "Seleziona un articolo"; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: Math.round(14 * Theme.fontScale); font.bold: true }
-                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: "Il contenuto testuale apparirà qui."; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: Math.round(11 * Theme.fontScale) }
+                                Text { textFormat: Text.PlainText; anchors.horizontalCenter: parent.horizontalCenter; text: "▤"; color: Theme.textMuted; font.pixelSize: Math.round(32 * Theme.fontScale) }
+                                Text { textFormat: Text.PlainText; anchors.horizontalCenter: parent.horizontalCenter; text: "Seleziona un articolo"; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: Math.round(14 * Theme.fontScale); font.bold: true }
+                                Text { textFormat: Text.PlainText; anchors.horizontalCenter: parent.horizontalCenter; text: "Il contenuto testuale apparirà qui."; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: Math.round(11 * Theme.fontScale) }
                             }
                         }
                     }

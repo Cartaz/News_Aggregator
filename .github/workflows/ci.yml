@@ -52,6 +52,11 @@ jobs:
       - name: Check Python syntax
         run: .venv/bin/python -m compileall -q main.py config core ui tests
 
+      - name: Lint QML
+        # Context properties and required var adapters are supplied by Python;
+        # retain their informational diagnostics and fail on other warnings.
+        run: .venv/bin/pyside6-qmllint --unqualified info -I ui/qml ui/qml/*.qml
+
       - name: Run core and contract tests
         run: .venv/bin/python -m pytest -q --ignore=tests/test_ui/test_qml_e2e.py
 

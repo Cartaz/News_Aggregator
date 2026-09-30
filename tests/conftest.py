@@ -71,6 +71,11 @@ def tmp_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     )
     monkeypatch.setattr(
         constants.Paths,
+        "SITE_ICON_CACHE_DIR",
+        tmp_path / "data" / "news-aggregator" / "site-icons",
+    )
+    monkeypatch.setattr(
+        constants.Paths,
         "LOG_FILE",
         tmp_path / "state" / "news-aggregator" / "app.log",
     )

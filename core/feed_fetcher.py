@@ -167,18 +167,17 @@ def fetch_and_parse_resolved(
 
         feed_urls: list[str] = extract_feed_links(content, url)
         if feed_urls:
-            logger.info(
-                "Auto-discovery: trovati %d feed in %s, provo %s",
-                len(feed_urls),
-                url,
-                feed_urls[0],
-            )
-            return _fetch_feed_recursive(
-                feed_urls[0],
-                source_id,
-                actual_timeout,
-                cancel_event=cancel_event,
-            )
+            for feed_url in feed_urls:
+                _raise_if_cancelled(cancel_event)
+                logger.info("Auto-discovery: provo %s da %s", feed_url, url)
+                try:
+                    return _fetch_feed_recursive(
+                        feed_url, source_id, actual_timeout, cancel_event=cancel_event,
+                    )
+                except RefreshCancelledError:
+                    raise
+                except (FeedFetchError, FeedParseError) as exc:
+                    logger.debug("Feed dichiarato %s non utilizzabile: %s", feed_url, exc)
 
         if not _is_feed_url(url):
             for candidate in candidate_feed_urls(url):

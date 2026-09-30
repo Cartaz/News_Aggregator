@@ -44,7 +44,7 @@ Item {
         border.width: root.activeFocus ? 1 : 0
         border.color: root.activeFocus ? Theme.accentLine : "transparent"
     }
-    Text {
+    Text { textFormat: Text.PlainText;
         anchors.centerIn: parent
         width: Math.max(0, parent.width - 12)
         y: tap.pressed ? 1 : 0

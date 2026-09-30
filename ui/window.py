@@ -9,7 +9,8 @@ from PySide6.QtCore import QEvent, QObject, QTimer, QUrl
 from PySide6.QtGui import QCloseEvent, QIcon
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuick import QQuickWindow
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QSystemTrayIcon
+from shiboken6 import delete
 
 from config.constants import AppMeta, Paths, UIConstraints
 from core.app_controller import AppController
@@ -32,6 +33,7 @@ class QmlMainWindow(QObject):
         self._controller = controller
         self.ui = ui_controller
         self._force_close = False
+        self._shutdown = False
 
         qml_root = Path(__file__).resolve().parent / "qml"
         shader_package = qml_root / "shaders" / "neumorphic_inset.frag.qsb"
@@ -89,6 +91,11 @@ class QmlMainWindow(QObject):
         self.ui.sync()
 
     def hide_to_tray(self) -> None:
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            self.ui.toastRequested.emit(
+                "Tray non disponibile", "La finestra resta aperta su questo desktop.", True,
+            )
+            return
         self._persist_geometry()
         self._hide_window_and_release_resources()
 
@@ -120,7 +127,11 @@ class QmlMainWindow(QObject):
             self.ui.sync()
         elif event_type == QEvent.Type.Close:
             self._persist_geometry()
-            if self._controller.settings.close_to_tray and not self._force_close:
+            if (
+                self._controller.settings.close_to_tray
+                and not self._force_close
+                and QSystemTrayIcon.isSystemTrayAvailable()
+            ):
                 if isinstance(event, QCloseEvent):
                     event.ignore()
                 self._hide_window_and_release_resources()
@@ -145,8 +156,17 @@ class QmlMainWindow(QObject):
 
     def shutdown(self) -> None:
         """Release UI observers before the controller is shut down."""
+        if self._shutdown:
+            return
+        self._shutdown = True
         self._geometry_timer.stop()
         self._memory_trim_timer.stop()
+        self._window.removeEventFilter(self)
+        self._window.hide()
+        # Destroy QML bindings while adapters are still alive. Leaving the
+        # engine to interpreter teardown turns backend into null mid-binding.
+        delete(self._window)
+        delete(self._engine)
         self.ui.shutdown()
 
 

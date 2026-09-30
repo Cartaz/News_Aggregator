@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import threading
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass, fields
@@ -34,11 +35,35 @@ class Settings:
     close_to_tray: bool = True
 
     def validate(self) -> None:
+        for name in (
+            "refresh_interval_minutes", "max_items_per_feed", "window_width",
+            "window_height", "source_split_width",
+        ):
+            if type(getattr(self, name)) is not int:
+                raise ConfigValidationError(f"{name} deve essere un intero")
+        for name in (
+            "mark_read_on_select", "show_unread_only", "notify_new_items", "close_to_tray",
+        ):
+            if type(getattr(self, name)) is not bool:
+                raise ConfigValidationError(f"{name} deve essere un booleano")
+        if (
+            type(self.font_scale_factor) not in (int, float)
+            or (type(self.font_scale_factor) is float and not math.isfinite(self.font_scale_factor))
+        ):
+            raise ConfigValidationError("font_scale_factor deve essere un numero finito")
+        if not UIConstraints.WINDOW_MIN_WIDTH <= self.window_width <= UIConstraints.WINDOW_MAX_DIMENSION:
+            raise ConfigValidationError("window_width fuori dai limiti della finestra")
+        if not UIConstraints.WINDOW_MIN_HEIGHT <= self.window_height <= UIConstraints.WINDOW_MAX_DIMENSION:
+            raise ConfigValidationError("window_height fuori dai limiti della finestra")
+        if not UIConstraints.SOURCE_LIST_MIN_WIDTH <= self.source_split_width <= UIConstraints.SOURCE_LIST_MAX_WIDTH:
+            raise ConfigValidationError("source_split_width fuori dai limiti della sidebar")
         if self.refresh_interval_minutes < 1:
             raise ConfigValidationError(
                 "refresh_interval_minutes deve essere >= 1"
             )
-        if self.max_items_per_feed < 1 or self.max_items_per_feed > 500:
+        if self.refresh_interval_minutes > int(threading.TIMEOUT_MAX // 60):
+            raise ConfigValidationError("refresh_interval_minutes supera il limite del timer")
+        if self.max_items_per_feed < 1 or self.max_items_per_feed > FeedDefaults.MAX_SUPPORTED_ITEMS_PER_FEED:
             raise ConfigValidationError(
                 "max_items_per_feed deve essere tra 1 e 500"
             )
@@ -107,7 +132,7 @@ class SettingsManager:
             except OSError as exc:
                 logger.warning("Impostazioni non leggibili, uso default: %s", exc)
                 candidate = Settings()
-            except (json.JSONDecodeError, TypeError) as exc:
+            except (json.JSONDecodeError, UnicodeError, TypeError) as exc:
                 logger.warning("Impostazioni corrotte, reset ai default: %s", exc)
                 candidate = Settings()
             except ConfigValidationError as exc:

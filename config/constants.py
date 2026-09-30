@@ -69,6 +69,7 @@ class FeedDefaults:
 
     REFRESH_INTERVAL_SECONDS: int = 60  # 1 minuto
     MAX_ITEMS_PER_FEED: int = 50
+    MAX_SUPPORTED_ITEMS_PER_FEED: int = 500
     REQUEST_TIMEOUT_SECONDS: int = 15
     # Numero massimo di feed aggiornati contemporaneamente. Un limite basso
     # riduce sensibilmente la latenza globale senza martellare i server RSS.
@@ -93,6 +94,7 @@ class UIConstraints:
     WINDOW_MIN_HEIGHT: int = 600
     WINDOW_DEFAULT_WIDTH: int = 1280
     WINDOW_DEFAULT_HEIGHT: int = 800
+    WINDOW_MAX_DIMENSION: int = 32768
 
     SOURCE_LIST_MIN_WIDTH: int = 240
     SOURCE_LIST_MAX_WIDTH: int = 480

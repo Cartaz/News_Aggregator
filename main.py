@@ -64,7 +64,7 @@ def main() -> int:
     app.setApplicationVersion(AppMeta.VERSION)
     app.setOrganizationName(AppMeta.AUTHOR)
     app.setQuitOnLastWindowClosed(False)
-    app.setFont(QFont("Cantarell"))
+    app.setFont(QFont("Noto Sans"))
     if Paths.APP_ICON.exists():
         app.setWindowIcon(QIcon(str(Paths.APP_ICON)))
 

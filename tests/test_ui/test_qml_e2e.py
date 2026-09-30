@@ -11,7 +11,8 @@ import pytest
 
 pytest.importorskip("PySide6.QtQuick")
 
-from PySide6.QtCore import QObject
+from PySide6.QtCore import QObject, Qt, QMetaObject
+from PySide6.QtQuick import QQuickItem
 from config.constants import Paths
 from config.settings import SettingsManager
 from core.app_controller import AppController
@@ -173,4 +174,135 @@ def test_restore_from_tray_resyncs_canonical_state(qtbot, backend) -> None:  # t
         qtbot.waitUntil(lambda: ui.articles.rowCount() == 1, timeout=3000)
     finally:
         window.window.hide()
+        window.shutdown()
+
+
+def test_external_read_and_metadata_events_update_visible_state(qtbot, backend):
+    manager, controller, ui = backend
+    source = manager.add("https://example.com/feed.xml", title="Original")
+    seed_items(manager, source.id, [article(source.id, "Item", 1)])
+    ui.sync()
+    ui.selectSource(ui.sources.index_for("feed", source.id))
+    ui.selectArticle(0)
+    controller.rename_feed(source.id, "Renamed")
+    qtbot.waitUntil(lambda: ui.scopeTitle == "Renamed")
+    controller.mark_read(source.id, ui.selectedArticleId)
+    qtbot.waitUntil(lambda: ui.selectedArticleRead)
+    controller.remove_feed(source.id)
+    qtbot.waitUntil(lambda: not ui.hasSelectedArticle)
+    assert ui.sources.row(0).selected is True
+    assert ui.selectedSourceRow == 0
+
+
+def test_config_event_clears_filtered_detail(qtbot, backend):
+    manager, controller, ui = backend
+    source = manager.add("https://example.com/feed.xml")
+    seed_items(manager, source.id, [article(source.id, "Item", 1)])
+    ui.sync()
+    ui.selectArticle(0)
+    controller.mark_read(source.id, ui.selectedArticleId)
+    qtbot.waitUntil(lambda: ui.selectedArticleRead)
+    controller.update_settings({"show_unread_only": True})
+    qtbot.waitUntil(lambda: ui.unreadOnly)
+    assert ui.articles.rowCount() == 0
+    assert not ui.hasSelectedArticle
+
+
+def test_filter_reset_does_not_select_another_article_or_mark_read(qtbot, backend):
+    manager, controller, ui = backend
+    source = manager.add("https://example.com/feed.xml")
+    seed_items(manager, source.id, [article(source.id, "Newest", 1), article(source.id, "Older", 2)])
+    ui.sync()
+    window = QmlMainWindow(controller, ui)
+    try:
+        window.show()
+        ui.selectArticle(0)
+        view = window.window.findChild(QQuickItem, "articleList")
+        view.forceActiveFocus()
+        ui.setSearchQuery("Older")
+        qtbot.wait(100)
+        assert not ui.hasSelectedArticle
+        assert view.property("currentIndex") == -1
+        assert not any(item.read for item in manager.get(source.id).items)
+        qtbot.keyClick(window.window, Qt.Key.Key_Down)
+        qtbot.waitUntil(lambda: ui.selectedArticleTitle == "Older")
+    finally:
+        window.window.hide()
+        window.shutdown()
+
+
+def test_add_dialog_focus_accepts_typing(qtbot, backend):
+    _manager, controller, ui = backend
+    window = QmlMainWindow(controller, ui)
+    try:
+        window.show()
+        dialogs = window.window.findChild(QObject, "appDialogs")
+        assert QMetaObject.invokeMethod(dialogs, "openAddFeed")
+        qtbot.waitUntil(lambda: window.window.activeFocusItem() is not None and window.window.activeFocusItem().property("text") is not None)
+        for character in "example.com":
+            qtbot.keyClick(window.window, ord(character.upper()))
+        assert window.window.activeFocusItem().property("text").casefold() == "example.com"
+    finally:
+        window.window.hide()
+        window.shutdown()
+
+
+def test_hide_without_tray_keeps_window_reachable(qtbot, backend, monkeypatch):
+    _manager, controller, ui = backend
+    monkeypatch.setattr("ui.window.QSystemTrayIcon.isSystemTrayAvailable", lambda: False)
+    window = QmlMainWindow(controller, ui)
+    try:
+        window.show()
+        with qtbot.waitSignal(ui.toastRequested):
+            window.hide_to_tray()
+        assert window.window.isVisible()
+    finally:
+        window.window.hide()
+        window.shutdown()
+
+
+def test_diagnostics_runs_off_gui_and_closed_log_discards_pending_result(qtbot, backend, monkeypatch):
+    import threading
+    _manager, controller, ui = backend
+    started, release = threading.Event(), threading.Event()
+    observed = []
+
+    def slow_log(_limit):
+        observed.append(threading.current_thread())
+        started.set()
+        assert release.wait(2)
+        return {"path": "app.log", "lines": ["Delayed"]}
+
+    monkeypatch.setattr(controller, "get_log_tail", slow_log)
+    try:
+        assert ui.diagnostics.load()
+        assert started.wait(1)
+        assert observed[0] is not threading.current_thread()
+        ui.diagnostics.clear()
+    finally:
+        release.set()
+    qtbot.wait(100)
+    assert ui.diagnostics.text == ""
+    with qtbot.waitSignal(ui.diagnostics.changed):
+        assert ui.diagnostics.load()
+    assert ui.diagnostics.text == "Delayed"
+
+
+def test_article_summary_cannot_enable_rich_text(qtbot, backend):
+    from dataclasses import replace
+    from PySide6.QtQml import QQmlEngine, QQmlExpression
+    manager, controller, ui = backend
+    source = manager.add("https://example.com/feed.xml")
+    markup = '<img src="https://example.com/remote.png">'
+    item = replace(article(source.id, "Literal markup", 1), summary=markup)
+    seed_items(manager, source.id, [item])
+    ui.sync()
+    ui.selectArticle(0)
+    window = QmlMainWindow(controller, ui)
+    try:
+        summary = window.window.findChild(QObject, "summaryText")
+        assert summary.property("text") == markup
+        expression = QQmlExpression(QQmlEngine.contextForObject(summary), summary, "textFormat === 0")
+        assert expression.evaluate()[0] is True  # QQuickText.PlainText
+    finally:
         window.shutdown()

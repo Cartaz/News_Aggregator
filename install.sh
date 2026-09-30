@@ -21,36 +21,36 @@ run_privileged() {
     elif command -v sudo >/dev/null 2>&1; then
         sudo "$@"
     else
-        fail "Cantarell non è installato e servono privilegi amministrativi per installarlo."
+        fail "Noto Sans non è installato e servono privilegi amministrativi per installarlo."
     fi
 }
 
-cantarell_available() {
+noto_sans_available() {
     command -v fc-match >/dev/null 2>&1 \
-        && fc-match -f '%{family}\n' Cantarell 2>/dev/null | head -n 1 | grep -qi 'Cantarell'
+        && fc-match -f '%{family}\n' 'Noto Sans' 2>/dev/null | head -n 1 | grep -qi 'Noto Sans'
 }
 
-ensure_cantarell() {
-    if cantarell_available; then
-        info "Font Cantarell disponibile"
+ensure_noto_sans() {
+    if noto_sans_available; then
+        info "Font Noto Sans disponibile"
         return
     fi
 
-    info "Installo il font UI Cantarell"
+    info "Installo il font UI Noto Sans"
     if command -v pacman >/dev/null 2>&1; then
-        run_privileged pacman -S --needed --noconfirm cantarell-fonts
+        run_privileged pacman -S --needed --noconfirm noto-fonts
     elif command -v apt-get >/dev/null 2>&1; then
-        run_privileged apt-get install -y fonts-cantarell
+        run_privileged apt-get install -y fonts-noto-core
     elif command -v dnf >/dev/null 2>&1; then
-        run_privileged dnf install -y abattis-cantarell-vf-fonts
+        run_privileged dnf install -y google-noto-sans-fonts
     else
-        fail "Cantarell non trovato. Installa Cantarell con il package manager della distribuzione e rilancia ./install.sh."
+        fail "Noto Sans non trovato. Installa Noto Sans con il package manager della distribuzione e rilancia ./install.sh."
     fi
 
     if command -v fc-cache >/dev/null 2>&1; then
         fc-cache -f >/dev/null 2>&1 || true
     fi
-    cantarell_available || fail "Cantarell risulta ancora non disponibile dopo l'installazione."
+    noto_sans_available || fail "Noto Sans risulta ancora non disponibile dopo l'installazione."
 }
 
 command -v "${PYTHON_BIN}" >/dev/null 2>&1 \
@@ -65,7 +65,7 @@ PY
 [[ -f "${REQUIREMENTS_FILE}" ]] || fail "requirements.txt non trovato in ${PROJECT_DIR}."
 [[ -f "${SHADER_SOURCE}" ]] || fail "Shader QML sorgente non trovato: ${SHADER_SOURCE}."
 
-ensure_cantarell
+ensure_noto_sans
 
 if [[ -d "${VENV_DIR}" && ! -x "${VENV_PYTHON}" ]]; then
     info "Ambiente virtuale incompleto: ricreo .venv"
@@ -92,20 +92,8 @@ info "Aggiorno gli strumenti di packaging"
 info "Installo le dipendenze runtime"
 "${VENV_PYTHON}" -m pip install -r "${REQUIREMENTS_FILE}"
 
-QSB=""
-for candidate in \
-    "${VENV_DIR}/bin/pyside6-qsb" \
-    "$(command -v pyside6-qsb 2>/dev/null || true)" \
-    "$(command -v qsb 2>/dev/null || true)" \
-    "/usr/lib/qt6/bin/qsb" \
-    "/usr/lib/qt6/libexec/qsb"
-do
-    if [[ -n "${candidate}" && -x "${candidate}" ]]; then
-        QSB="${candidate}"
-        break
-    fi
-done
-[[ -n "${QSB}" ]] || fail "Compilatore shader qsb non trovato. Reinstalla PySide6 o, su Arch/CachyOS, installa qt6-shadertools."
+QSB="${VENV_DIR}/bin/pyside6-qsb"
+[[ -x "${QSB}" ]] || fail "pyside6-qsb abbinato al runtime non trovato. Reinstalla PySide6 nella .venv."
 
 info "Compilo lo shader neumorfico Qt Quick"
 "${QSB}" --qt6 -o "${SHADER_PACKAGE}" "${SHADER_SOURCE}" \
@@ -125,6 +113,32 @@ from PySide6.QtQuick import QQuickWindow
 from PySide6.QtQuick import QQuickView
 from PySide6.QtWidgets import QSystemTrayIcon
 print("Dipendenze verificate.")
+PY
+
+info "Verifico caricamento QML con dati temporanei"
+QT_QPA_PLATFORM=offscreen "${VENV_PYTHON}" - <<'PY'
+import os
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+with TemporaryDirectory(prefix="news-aggregator-install-") as temporary:
+    for kind in ("CONFIG", "DATA", "STATE"):
+        os.environ[f"XDG_{kind}_HOME"] = str(Path(temporary) / kind.lower())
+    from PySide6.QtWidgets import QApplication
+    from core.app_controller import AppController
+    from ui.controller import UiController
+    from ui.window import QmlMainWindow
+
+    app = QApplication([])
+    controller = AppController()
+    ui = UiController(controller)
+    try:
+        window = QmlMainWindow(controller, ui)
+        window.shutdown()
+        print("Main.qml verificato.")
+    finally:
+        ui.shutdown()
+        controller.shutdown()
 PY
 
 printf '\nInstallazione completata.\n'

@@ -21,6 +21,9 @@ class _FeedManager:
     def __init__(self) -> None:
         self.event_sink = None
 
+    def set_max_items_per_feed(self, limit: int) -> None:
+        self.max_items_per_feed = limit
+
     def set_event_sink(self, event_sink) -> None:  # type: ignore[no-untyped-def]
         self.event_sink = event_sink
 
@@ -101,6 +104,27 @@ def test_shutdown_signals_running_refresh_cancellation() -> None:
     with controller._refresh_lock:
         assert controller._refresh_thread is None
         assert controller._refresh_cancel_event is None
+
+
+def test_global_worker_error_is_reported_as_failed(monkeypatch) -> None:
+    controller, manager = _controller()
+    done = threading.Event()
+    results = []
+
+    def fail(*_args):
+        raise RuntimeError("Catalog unavailable")
+
+    def complete(result):
+        results.append(result)
+        done.set()
+
+    monkeypatch.setattr(manager, "refresh_all", fail)
+    try:
+        assert controller.refresh_all_async(complete)
+        assert done.wait(1)
+        assert results == [{"success": 0, "failed": 1, "errors": ["Catalog unavailable"]}]
+    finally:
+        controller.shutdown()
 
 
 def test_worker_remains_owned_until_completion_callback_returns() -> None:

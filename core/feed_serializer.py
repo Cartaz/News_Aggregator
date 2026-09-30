@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from core.models import FeedItem, FeedSource
@@ -43,6 +43,15 @@ def _serialize_item(item: FeedItem) -> dict[str, Any]:
 
 
 def deserialize_source(data: dict[str, Any]) -> FeedSource:
+    if not isinstance(data, dict):
+        raise ValueError("Sorgente non oggetto")
+    for name in ("url", "title", "last_error", "category", "resolved_feed_url", "http_etag", "http_last_modified"):
+        if name in data and not isinstance(data[name], str):
+            raise ValueError(f"{name} non stringa")
+    if not data.get("url", "").strip():
+        raise ValueError("URL sorgente vuoto")
+    if type(data.get("enabled", True)) is not bool:
+        raise ValueError("enabled non booleano")
     source = FeedSource(
         url=data["url"],
         title=data.get("title", data["url"]),
@@ -56,22 +65,45 @@ def deserialize_source(data: dict[str, Any]) -> FeedSource:
     last_str: str | None = data.get("last_updated")
     if last_str:
         try:
-            source.last_updated = datetime.fromisoformat(last_str)
-        except ValueError:
+            source.last_updated = _parse_datetime(last_str)
+        except (TypeError, ValueError):
+            logger.warning("Data aggiornamento non valida per %s", source.url)
             source.last_updated = None
-    for item_data in data.get("items", []):
+    raw_items = data.get("items", [])
+    if not isinstance(raw_items, list):
+        logger.warning("Lista articoli non valida per %s", source.url)
+        raw_items = []
+    for item_data in raw_items:
         try:
-            source.items.append(_deserialize_item(item_data))
-        except (KeyError, ValueError) as exc:
+            source.items.append(_deserialize_item(item_data, source.id))
+        except (KeyError, TypeError, ValueError) as exc:
             logger.warning("Articolo ignorato (dati non validi): %s", exc)
     return source
 
 
-def _deserialize_item(data: dict[str, Any]) -> FeedItem:
-    published = datetime.fromisoformat(data["published"])
+def _parse_datetime(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value)
+    # Older catalogs may contain naive ISO dates. Interpret them consistently
+    # as UTC before any age comparison or ordering.
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _deserialize_item(data: dict[str, Any], source_id: str) -> FeedItem:
+    if not isinstance(data, dict):
+        raise ValueError("Articolo non oggetto")
+    for name in ("id", "title", "link", "summary", "author", "guid"):
+        if name in data and not isinstance(data[name], str):
+            raise ValueError(f"{name} articolo non stringa")
+    if not data.get("id"):
+        raise ValueError("Identità articolo vuota")
+    if type(data.get("read", False)) is not bool:
+        raise ValueError("read non booleano")
+    published = _parse_datetime(data["published"])
     return FeedItem(
         id=data["id"],
-        source_id=data["source_id"],
+        source_id=source_id,
         title=data["title"],
         link=data.get("link", ""),
         summary=data.get("summary", ""),

@@ -2,12 +2,7 @@ pragma Singleton
 import QtQuick
 
 QtObject {
-    readonly property var availableFontFamilies: Qt.fontFamilies()
-    readonly property string fontFamily: availableFontFamilies.indexOf("Cantarell") >= 0
-        ? "Cantarell"
-        : (availableFontFamilies.indexOf("Noto Sans") >= 0
-            ? "Noto Sans"
-            : (availableFontFamilies.length > 0 ? availableFontFamilies[0] : "sans-serif"))
+    readonly property string fontFamily: "Noto Sans"
 
     property real userFontScale: 1.0
     property real viewportTextScale: 1.0
@@ -25,7 +20,7 @@ QtObject {
     readonly property color raisedLight: Qt.rgba(0.294, 0.294, 0.294, 0.11)
     readonly property color raisedLightSoft: Qt.rgba(0.294, 0.294, 0.294, 0.09)
     readonly property color insetDark: Qt.rgba(0, 0, 0, 0.60)
-    readonly property color insetLight: Qt.rgba(0.294, 0.294, 0.294, 0.09)
+    readonly property color insetLight: Qt.rgba(1, 1, 1, 0.09)
 
     // Accent remains visible as a state cue, but never becomes an opaque halo.
     readonly property color accentBorder: Qt.rgba(1, 0.4, 0, 0.24)

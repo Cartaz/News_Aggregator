@@ -85,6 +85,8 @@ def parse_feed_bytes(
 
     parsed: FeedParserDict = feedparser.parse(content)
     if not parsed.entries:
+        if parsed.get("version") and not parsed.get("bozo"):
+            return parsed.feed.get("title", url) or url, []
         bozo_exc = parsed.get("bozo_exception", "unknown parser error")
         raise FeedParseError(url, str(bozo_exc))
 
@@ -92,7 +94,7 @@ def parse_feed_bytes(
     items: list[FeedItem] = []
     seen_ids: set[str] = set()
 
-    for entry in parsed.entries[:FeedDefaults.MAX_ITEMS_PER_FEED]:
+    for entry in parsed.entries:
         title = strip_html(entry.get("title", "")).strip() or "(senza titolo)"
         link = str(entry.get("link", "") or "").strip()
         guid = _extract_guid(entry)
@@ -114,6 +116,8 @@ def parse_feed_bytes(
             continue
         seen_ids.add(item.id)
         items.append(item)
+        if len(items) >= FeedDefaults.MAX_SUPPORTED_ITEMS_PER_FEED:
+            break
 
     if not items:
         raise FeedParseError(url, "feed senza articoli con identità stabile")
