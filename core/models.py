@@ -132,7 +132,16 @@ class FeedSource:
                 )
 
             if old is not None:
-                new_list.append(replace(item, read=old.read))
+                # An article never moves forward in time: undated entries get
+                # "now" from the parser on every fetch, and must keep the date
+                # they were first seen with instead of jumping back to the top.
+                new_list.append(
+                    replace(
+                        item,
+                        read=old.read,
+                        published=min(item.published, old.published),
+                    )
+                )
             else:
                 new_list.append(item)
                 brand_new.append(item)
@@ -150,13 +159,4 @@ class FeedSource:
         return False
 
 
-@dataclass(frozen=True, slots=True)
-class FeedCategory:
-    name: str
-
-    @property
-    def id(self) -> str:
-        return hashlib.sha1(self.name.lower().encode("utf-8")).hexdigest()[:12]
-
-
-__all__ = ["FeedItem", "FeedSource", "FeedCategory"]
+__all__ = ["FeedItem", "FeedSource"]

@@ -89,6 +89,15 @@ fi
 
 info "Aggiorno gli strumenti di packaging"
 "${VENV_PYTHON}" -m pip install --upgrade pip setuptools wheel
+if "${VENV_PYTHON}" -m pip show PySide6 >/dev/null 2>&1; then
+    # Le versioni precedenti installavano il metapacchetto PySide6, che porta
+    # con sé WebEngine e Pdf (~270 MB) mai usati dall'app. Il metapacchetto
+    # condivide file (es. PySide6/__init__.py) con Essentials: si rimuovono
+    # tutte le parti e il passo successivo reinstalla solo quelle necessarie.
+    info "Rimuovo i moduli Qt non usati (metapacchetto PySide6, WebEngine, Pdf)"
+    "${VENV_PYTHON}" -m pip uninstall -y \
+        PySide6 PySide6_WebEngine PySide6_Pdf PySide6_Addons PySide6_Essentials
+fi
 info "Installo le dipendenze runtime"
 "${VENV_PYTHON}" -m pip install -r "${REQUIREMENTS_FILE}"
 

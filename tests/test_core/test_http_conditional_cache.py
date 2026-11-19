@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import call, patch
 
 import pytest
 
@@ -13,6 +13,12 @@ from core.feed_fetcher import FeedFetchResult, fetch_and_parse_resolved
 from core.feed_http import HttpFetchResult, fetch_url_response
 from core.feed_manager import FeedManager
 from core.models import FeedItem
+from tests.http_fakes import FakeResponse
+
+
+def fetch_call(url: str, source_id: str, etag: str = "", last_modified: str = ""):  # type: ignore[no-untyped-def]
+    """Expected FeedManager -> fetcher call shape."""
+    return call(url, source_id, etag=etag, last_modified=last_modified, cancel_event=None)
 
 
 @pytest.fixture
@@ -49,10 +55,9 @@ def _seed_http_cache(
 
 def test_fetch_url_response_sends_validators_and_accepts_304() -> None:
     last_modified = "Fri, 21 Aug 2026 09:00:00 GMT"
-    response = MagicMock(
+    response = FakeResponse(
         status_code=304,
         headers={"ETag": '"v1"', "Last-Modified": last_modified},
-        content=b"",
     )
 
     with patch("core.feed_http.requests.get", return_value=response) as get_mock:
@@ -127,8 +132,8 @@ def test_manager_persists_validators_and_preserves_items_on_304(
         assert manager.refresh(source.id) == 0
 
     assert fetch_mock.call_args_list == [
-        call(source.url, source.id),
-        call(
+        fetch_call(source.url, source.id),
+        fetch_call(
             source.url,
             source.id,
             etag='"v1"',
@@ -141,6 +146,7 @@ def test_manager_persists_validators_and_preserves_items_on_304(
     assert current.http_etag == '"v1"'
     assert current.http_last_modified == last_modified
 
+    manager.flush()
     reloaded = FeedManager()
     persisted = reloaded.get(source.id)
     assert persisted.http_etag == '"v1"'
@@ -158,15 +164,15 @@ def test_conditional_failure_retries_same_cached_url_without_validators(
     with patch(
         "core.feed_manager.fetch_and_parse_resolved",
         side_effect=[
-            FeedFetchError(cached, "conditional rejected"),
+            FeedFetchError(cached, "conditional rejected", status_code=412),
             FeedFetchResult("Example", [], cached, etag='"new"'),
         ],
     ) as fetch_mock:
         manager.refresh(source.id)
 
     assert fetch_mock.call_args_list == [
-        call(cached, source.id, etag='"old"'),
-        call(cached, source.id),
+        fetch_call(cached, source.id, etag='"old"'),
+        fetch_call(cached, source.id),
     ]
     current = manager.get(source.id)
     assert current.resolved_feed_url == cached
@@ -189,8 +195,8 @@ def test_new_resolved_url_replaces_old_validators(manager: FeedManager) -> None:
     with patch(
         "core.feed_manager.fetch_and_parse_resolved",
         side_effect=[
-            FeedFetchError(old_cached, "conditional failed"),
-            FeedFetchError(old_cached, "gone"),
+            FeedFetchError(old_cached, "conditional failed", status_code=400),
+            FeedFetchError(old_cached, "gone", status_code=404),
             FeedFetchResult(
                 "Example",
                 [],
@@ -203,14 +209,14 @@ def test_new_resolved_url_replaces_old_validators(manager: FeedManager) -> None:
         manager.refresh(source.id)
 
     assert fetch_mock.call_args_list == [
-        call(
+        fetch_call(
             old_cached,
             source.id,
             etag='"old"',
             last_modified=old_last_modified,
         ),
-        call(old_cached, source.id),
-        call(source.url, source.id),
+        fetch_call(old_cached, source.id),
+        fetch_call(source.url, source.id),
     ]
     current = manager.get(source.id)
     assert current.resolved_feed_url == new_cached

@@ -17,8 +17,6 @@ class AppMeta:
     NAME = "news-aggregator"
     DISPLAY_NAME = "News Aggregator"
     VERSION = "1.1.0"
-    DESCRIPTION = "Aggregatore di feed RSS/Atom in formato solo testo"
-    AUTHOR = "CachyOS User"
     LICENSE = "GPL-3.0-or-later"
 
 
@@ -67,7 +65,6 @@ class Paths:
 class FeedDefaults:
     """Valori predefiniti per il recupero e la gestione dei feed."""
 
-    REFRESH_INTERVAL_SECONDS: int = 60  # 1 minuto
     MAX_ITEMS_PER_FEED: int = 50
     MAX_SUPPORTED_ITEMS_PER_FEED: int = 500
     REQUEST_TIMEOUT_SECONDS: int = 15
@@ -81,7 +78,7 @@ class FeedDefaults:
     # l'URL del feed diretto invece della homepage.
     USER_AGENT: str = (
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     )
     MAX_SUMMARY_LENGTH: int = 800
     MAX_ITEM_AGE_HOURS: int = 48
@@ -98,27 +95,3 @@ class UIConstraints:
 
     SOURCE_LIST_MIN_WIDTH: int = 240
     SOURCE_LIST_MAX_WIDTH: int = 480
-    NEWS_VIEW_MIN_WIDTH: int = 380
-
-    CARD_PADDING: int = 16
-    CARD_MARGIN: int = 8
-    CARD_BORDER_RADIUS: int = 16
-
-    MAX_GRID_COLUMNS: int = 3
-    SHORTCUT_BADGE_FONT_SIZE: int = 10
-    CARD_HEADER_FONT_SIZE: int = 13
-    BUTTON_FONT_SIZE: int = 12
-    BODY_FONT_SIZE: int = 12
-
-
-class Shortcuts:
-    """Scorciatoie da tastiera registrate nell'applicazione."""
-
-    ADD_FEED: str = "Ctrl+N"
-    REFRESH_ALL: str = "Ctrl+R"
-    REFRESH_CURRENT: str = "Ctrl+Shift+R"
-    REMOVE_FEED: str = "Ctrl+D"
-    SEARCH: str = "Ctrl+F"
-    MARK_READ: str = "Ctrl+M"
-    QUIT: str = "Ctrl+Q"
-    MINIMIZE_TRAY: str = "Ctrl+H"

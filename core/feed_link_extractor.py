@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import logging
 from html.parser import HTMLParser
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 logger = logging.getLogger(__name__)
+
+MAX_FEED_CANDIDATES = 5
 
 # Tipi MIME che indicano un feed RSS/Atom
 RSS_TYPES: frozenset[str] = frozenset({
@@ -75,56 +77,56 @@ def extract_feed_links(html: bytes, base_url: str) -> list[str]:
 
     Strategia a 2 livelli:
     1. ``<link rel="alternate" type="application/rss+xml" href="...">``
-       (standard). Tollerante all'ordine degli attributi e ai tipi
-       MIME comuni. Usa ``HTMLParser`` per robustezza.
-    2. Fallback: ``<a href="...feed...">`` nel body per siti non
-       standard (alcuni siti linkano il feed solo nel footer).
+       (standard), anche verso altri domini (es. FeedBurner).
+    2. Fallback: ``<a href>`` che contengono "feed", "rss" o "atom", ma solo
+       sullo stesso sito: un link qualsiasi nel footer non deve diventare la
+       sorgente dell'utente.
 
-    Args:
-        html: Bytes dell'HTML.
-        base_url: URL della pagina (per risolvere URL relativi).
-
-    Returns:
-        Lista di URL assoluti dei feed trovati (deduplicati).
+    Solo URL http(s), al massimo ``MAX_FEED_CANDIDATES`` per livello: ogni
+    candidato costa una richiesta di rete durante il refresh.
     """
     if not html:
         return []
     # Limita a 512KB per evitare OOM su pagine giganti
-    try:
-        page_text: str = html[:524288].decode("utf-8", errors="ignore")
-    except (UnicodeDecodeError, AttributeError):
-        return []
-    parser: _LinkExtractor = _LinkExtractor()
+    page_text = html[:524288].decode("utf-8", errors="ignore")
+    parser = _LinkExtractor()
     try:
         parser.feed(page_text)
         parser.close()
     except Exception as exc:
         logger.warning("Errore parsing HTML per feed discovery: %s", exc)
 
-    # Risolvi URL relativi e deduplica
-    result: list[str] = []
-    seen: set[str] = set()
-    for href in parser.feed_links:
-        absolute: str = urljoin(base_url, href)
-        if absolute not in seen:
-            result.append(absolute)
-            seen.add(absolute)
-    if result:
-        return result
+    declared = _absolute_http_urls(parser.feed_links, base_url)
+    if declared:
+        return declared[:MAX_FEED_CANDIDATES]
 
-    # Livello 2 (fallback): cerca <a href="...feed..."> o "...rss..."
-    for href in parser.anchor_hrefs:
-        href_lower: str = href.lower()
-        # Evita link a /comments/feed/ di WordPress (commenti, non articoli)
-        if "comment" in href_lower:
-            continue
-        # Cerca href che contengano "feed", "rss" o "atom"
-        if "feed" in href_lower or "rss" in href_lower or "atom" in href_lower:
-            absolute = urljoin(base_url, href)
-            if absolute not in seen:
-                result.append(absolute)
-                seen.add(absolute)
+    site = _site_host(base_url)
+    anchors = [
+        href
+        for href in parser.anchor_hrefs
+        if "comment" not in href.lower()  # WordPress /comments/feed/
+        and any(token in href.lower() for token in ("feed", "rss", "atom"))
+    ]
+    same_site = [
+        url for url in _absolute_http_urls(anchors, base_url) if _site_host(url) == site
+    ]
+    return same_site[:MAX_FEED_CANDIDATES]
+
+
+def _absolute_http_urls(hrefs: list[str], base_url: str) -> list[str]:
+    result: list[str] = []
+    for href in hrefs:
+        absolute = urljoin(base_url, href.strip())
+        parsed = urlparse(absolute)
+        if parsed.scheme in {"http", "https"} and parsed.netloc and absolute not in result:
+            result.append(absolute)
     return result
 
 
-__all__ = ["extract_feed_links", "RSS_TYPES"]
+def _site_host(url: str) -> str:
+    """Host without a leading ``www.``, used to keep anchor fallbacks on-site."""
+    host = (urlparse(url).hostname or "").lower()
+    return host[4:] if host.startswith("www.") else host
+
+
+__all__ = ["MAX_FEED_CANDIDATES", "RSS_TYPES", "extract_feed_links"]

@@ -8,13 +8,13 @@ from unittest.mock import patch
 
 import pytest
 
+from core.feed_fetcher import FeedFetchResult
 from core.feed_manager import FeedManager
 from core.models import FeedItem
 
 
 @pytest.fixture
 def manager(tmp_paths: Path) -> FeedManager:
-    FeedManager._instance = None  # type: ignore[attr-defined]
     return FeedManager()
 
 
@@ -39,7 +39,7 @@ def test_old_items_pruned_on_refresh(manager: FeedManager) -> None:
     ]
     with patch(
         "core.feed_manager.fetch_and_parse_resolved",
-        return_value=("Title", items, source.url),
+        return_value=FeedFetchResult("Title", items, source.url),
     ):
         manager.refresh(source.id)
     refreshed = manager.get(source.id)
@@ -59,7 +59,7 @@ def test_get_all_items_filters_old(manager: FeedManager) -> None:
     ]
     with patch(
         "core.feed_manager.fetch_and_parse_resolved",
-        return_value=("Title", items, source.url),
+        return_value=FeedFetchResult("Title", items, source.url),
     ):
         manager.refresh(source.id)
     all_items = manager.get_all_items(limit=500)
@@ -71,14 +71,14 @@ def test_get_all_items_filters_old(manager: FeedManager) -> None:
 
 def test_get_items_by_category_filters_old(manager: FeedManager) -> None:
     source = manager.add("https://example.com/feed.xml")
-    manager.set_category(source.id, "Tech")
+    manager.update_feed(source.id, source.title, "Tech")
     items = [
         _make_item("recent", source.id, 1),
         _make_item("old", source.id, 72),
     ]
     with patch(
         "core.feed_manager.fetch_and_parse_resolved",
-        return_value=("Title", items, source.url),
+        return_value=FeedFetchResult("Title", items, source.url),
     ):
         manager.refresh(source.id)
     tech_items = manager.get_items_by_category("Tech")
@@ -95,7 +95,7 @@ def test_recent_items_at_boundary_kept(manager: FeedManager) -> None:
     ]
     with patch(
         "core.feed_manager.fetch_and_parse_resolved",
-        return_value=("Title", items, source.url),
+        return_value=FeedFetchResult("Title", items, source.url),
     ):
         manager.refresh(source.id)
     refreshed = manager.get(source.id)

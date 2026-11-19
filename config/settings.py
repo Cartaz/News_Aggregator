@@ -11,7 +11,7 @@ from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Any
 
-from config.constants import AppMeta, FeedDefaults, Paths, UIConstraints
+from config.constants import FeedDefaults, Paths, UIConstraints
 from config.exceptions import ConfigError, ConfigValidationError
 
 logger = logging.getLogger(__name__)
@@ -23,7 +23,7 @@ ChangeCallback = Callable[["Settings"], None]
 class Settings:
     """Schema and defaults for persisted user settings."""
 
-    refresh_interval_minutes: int = 1
+    refresh_interval_minutes: int = 15
     max_items_per_feed: int = FeedDefaults.MAX_ITEMS_PER_FEED
     mark_read_on_select: bool = True
     show_unread_only: bool = False
@@ -121,7 +121,6 @@ class SettingsManager:
 
     def load(self) -> Settings:
         """Load one validated candidate and publish it atomically in memory."""
-        Paths.ensure_user_dirs()
         candidate = Settings()
         if not self._path.exists():
             logger.info("File impostazioni non trovato, uso default: %s", self._path)
@@ -145,10 +144,10 @@ class SettingsManager:
 
     def _persist(self, candidate: Settings) -> None:
         """Write one detached validated candidate without publishing it in memory."""
-        Paths.ensure_user_dirs()
         candidate.validate()
         temporary = self._path.with_name(f".{self._path.name}.tmp")
         try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
             temporary.write_text(
                 json.dumps(asdict(candidate), indent=2),
                 encoding="utf-8",
@@ -221,4 +220,4 @@ class SettingsManager:
                 )
 
 
-__all__ = ["Settings", "SettingsManager", "ChangeCallback", "AppMeta"]
+__all__ = ["Settings", "SettingsManager", "ChangeCallback"]

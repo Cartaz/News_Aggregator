@@ -23,11 +23,21 @@ class FeedParseError(FeedError):
 
 
 class FeedFetchError(FeedError):
-    """Errore di rete durante il recupero del feed."""
+    """Errore di rete durante il recupero del feed.
 
-    def __init__(self, url: str, cause: str = "") -> None:
+    ``status_code`` is the HTTP status when the server answered, ``None`` for
+    transport failures (DNS, timeout, connection reset).
+    """
+
+    def __init__(self, url: str, cause: str = "", status_code: int | None = None) -> None:
         self.url = url
+        self.status_code = status_code
         super().__init__(f"Errore di rete per {url}: {cause}")
+
+    @property
+    def is_transient(self) -> bool:
+        """True when retrying later may succeed and cached knowledge stays valid."""
+        return self.status_code is None or self.status_code >= 500 or self.status_code == 429
 
 
 class FeedNotFoundError(FeedError):
@@ -53,10 +63,6 @@ class RefreshCancelledError(FeedError):
         super().__init__("Aggiornamento annullato")
 
 
-class UIError(AppError):
-    """Errore generico del livello UI."""
-
-
 __all__ = [
     "AppError",
     "ConfigError",
@@ -67,5 +73,4 @@ __all__ = [
     "FeedNotFoundError",
     "FeedDuplicateError",
     "RefreshCancelledError",
-    "UIError",
 ]

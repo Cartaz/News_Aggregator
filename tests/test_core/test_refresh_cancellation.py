@@ -5,10 +5,9 @@ from __future__ import annotations
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
-import requests
 
 from core.exceptions import (
     FeedNotFoundError,
@@ -18,6 +17,7 @@ from core.feed_fetcher import FeedFetchResult
 from core.feed_http import fetch_url_response
 from core.feed_manager import FeedManager
 from core.models import FeedItem
+from tests.http_fakes import FakeCurlRequests, FakeResponse
 
 
 @pytest.fixture
@@ -103,15 +103,15 @@ def test_refresh_all_reports_pre_cancelled_sources_without_network(
 def test_http_cancellation_stops_before_curl_fallback() -> None:
     cancel_event = threading.Event()
 
-    def fail_and_cancel(*args, **kwargs):  # type: ignore[no-untyped-def]
+    def blocked_and_cancel(*args, **kwargs):  # type: ignore[no-untyped-def]
         cancel_event.set()
-        raise requests.exceptions.ConnectionError("offline")
+        return FakeResponse(b"denied", status_code=403)
 
-    curl_mock = MagicMock()
+    curl = FakeCurlRequests()
     with (
-        patch("core.feed_http.requests.get", side_effect=fail_and_cancel),
+        patch("core.feed_http.requests.get", side_effect=blocked_and_cancel),
         patch("core.feed_http._HAS_CURL_CFFI", True),
-        patch("core.feed_http.cf_requests", curl_mock),
+        patch("core.feed_http.cf_requests", curl),
     ):
         with pytest.raises(RefreshCancelledError):
             fetch_url_response(
@@ -119,7 +119,7 @@ def test_http_cancellation_stops_before_curl_fallback() -> None:
                 cancel_event=cancel_event,
             )
 
-    curl_mock.get.assert_not_called()
+    assert curl.calls == []
 
 
 def test_removed_feed_is_still_absent_after_stale_worker_finishes(

@@ -184,7 +184,7 @@ class ArticleListModel(QAbstractListModel):
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._all_rows: list[ArticleRowData] = []
-        self._visible_rows: list[ArticleRowData] = self._all_rows
+        self._visible_rows: list[ArticleRowData] = []
         self._search_query = ""
         self._unread_only = False
 
@@ -255,7 +255,7 @@ class ArticleListModel(QAbstractListModel):
     def _apply_filter(self) -> None:
         query = self._search_query
         if not query and not self._unread_only:
-            rows = self._all_rows
+            rows = list(self._all_rows)
         else:
             rows = [
                 row
@@ -269,9 +269,66 @@ class ArticleListModel(QAbstractListModel):
                     or query in row.item.author.casefold()
                 )
             ]
-        self.beginResetModel()
-        self._visible_rows = rows
-        self.endResetModel()
+        self._publish(rows)
+
+    def _publish(self, rows: list[ArticleRowData]) -> None:
+        """Show ``rows`` with the smallest model change, so QML keeps scroll and delegates.
+
+        Same articles in the same order become per-row updates; articles that
+        only appeared on top (a refresh) become one insertion. Anything else,
+        such as a new filter or scope, is a reset.
+        """
+        previous = self._visible_rows
+        previous_ids = [row.item.id for row in previous]
+        current_ids = [row.item.id for row in rows]
+        added = len(current_ids) - len(previous_ids)
+
+        if current_ids == previous_ids:
+            self._visible_rows = rows
+            self._emit_changed_rows(previous, rows, offset=0)
+        elif added > 0 and previous_ids and current_ids[added:] == previous_ids:
+            self.beginInsertRows(QModelIndex(), 0, added - 1)
+            self._visible_rows = rows
+            self.endInsertRows()
+            self._emit_changed_rows(previous, rows[added:], offset=added)
+        else:
+            self.beginResetModel()
+            self._visible_rows = rows
+            self.endResetModel()
+            return
+        # Relative ages ("5 min") drift with time even when nothing else changed.
+        if rows:
+            self.dataChanged.emit(
+                self.index(0, 0),
+                self.index(len(rows) - 1, 0),
+                [int(_ArticleRole.PublishedRelative)],
+            )
+
+    def _emit_changed_rows(
+        self,
+        previous: list[ArticleRowData],
+        current: list[ArticleRowData],
+        *,
+        offset: int,
+    ) -> None:
+        for position, (before, after) in enumerate(zip(previous, current)):
+            if before != after:
+                model_index = self.index(position + offset, 0)
+                self.dataChanged.emit(model_index, model_index, [])
+
+    def set_read(self, item_id: str) -> bool:
+        """Mark one article read in place; it stays visible until filters re-apply."""
+        changed = False
+        for rows in (self._all_rows, self._visible_rows):
+            for position, row in enumerate(rows):
+                if row.item.id == item_id and not row.item.read:
+                    rows[position] = replace(row, item=replace(row.item, read=True))
+                    changed = True
+                    if rows is self._visible_rows:
+                        model_index = self.index(position, 0)
+                        self.dataChanged.emit(model_index, model_index, [int(_ArticleRole.Read)])
+                    break
+        return changed
 
     def row(self, index: int) -> ArticleRowData | None:
         if 0 <= index < len(self._visible_rows):

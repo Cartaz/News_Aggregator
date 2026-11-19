@@ -1,5 +1,9 @@
 # Dipendenze runtime di News Aggregator
-PySide6>=6.11.2,<7.0.0
+# Solo i moduli Qt usati: Essentials (Qt Quick, QML, Svg, Widgets per il tray)
+# e Addons (fornisce il compilatore shader `qsb` usato da install.sh).
+# Il metapacchetto `PySide6` installerebbe anche WebEngine e Pdf (~270 MB) inutilizzati.
+PySide6-Essentials>=6.11.2,<7.0.0
+PySide6-Addons>=6.11.2,<7.0.0
 feedparser>=6.0.10,<7.0.0
 requests>=2.31.0,<3.0.0
 curl_cffi>=0.7.0,<1.0.0

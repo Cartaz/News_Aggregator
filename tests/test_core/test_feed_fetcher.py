@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -12,9 +12,15 @@ from core.feed_fetcher import (
     _is_feed_url,
     _looks_like_html,
     _looks_like_xml,
-    fetch_and_parse,
+    fetch_and_parse_resolved,
 )
 from core.feed_link_extractor import extract_feed_links
+from tests.http_fakes import FakeResponse
+
+
+def fetch_and_parse(url: str, source_id: str):  # type: ignore[no-untyped-def]
+    result = fetch_and_parse_resolved(url, source_id)
+    return result.title, result.items
 
 
 HTML_WITH_FEED_LINK = b"""<!DOCTYPE html>
@@ -128,12 +134,7 @@ def test_fetch_and_parse_direct_xml(sample_rss_bytes: bytes) -> None:
     """Un feed XML valido deve essere parsato direttamente."""
     with patch(
         "core.feed_http.requests.get",
-        return_value=MagicMock(
-            content=sample_rss_bytes,
-            url="https://example.com/feed.xml",
-            raise_for_status=MagicMock(),
-            status_code=200,
-        ),
+        return_value=FakeResponse(sample_rss_bytes, url="https://example.com/feed.xml"),
     ):
         title, items = fetch_and_parse(
             "https://example.com/feed.xml", "src1"
@@ -144,18 +145,8 @@ def test_fetch_and_parse_direct_xml(sample_rss_bytes: bytes) -> None:
 
 def test_fetch_and_parse_auto_discovery() -> None:
     """Una pagina HTML con link RSS deve triggerare auto-discovery."""
-    html_resp = MagicMock(
-        content=HTML_WITH_FEED_LINK,
-        url="https://example.com/",
-        raise_for_status=MagicMock(),
-        status_code=200,
-    )
-    feed_resp = MagicMock(
-        content=RSS_VALID,
-        url="https://example.com/feed.xml",
-        raise_for_status=MagicMock(),
-        status_code=200,
-    )
+    html_resp = FakeResponse(HTML_WITH_FEED_LINK, url="https://example.com/")
+    feed_resp = FakeResponse(RSS_VALID, url="https://example.com/feed.xml")
     with patch(
         "core.feed_http.requests.get",
         side_effect=[html_resp, feed_resp],
@@ -168,12 +159,7 @@ def test_fetch_and_parse_auto_discovery() -> None:
 
 def test_fetch_and_parse_no_feed_raises(sample_rss_bytes: bytes) -> None:
     """Una pagina HTML senza link RSS deve sollevare FeedParseError."""
-    html_resp = MagicMock(
-        content=HTML_NO_FEED_LINK,
-        url="https://example.com/some/article",
-        raise_for_status=MagicMock(),
-        status_code=200,
-    )
+    html_resp = FakeResponse(HTML_NO_FEED_LINK, url="https://example.com/some/article")
     with patch("core.feed_http.requests.get", return_value=html_resp), \
          patch("core.feed_http._HAS_CURL_CFFI", False):
         with pytest.raises(FeedParseError):
@@ -211,25 +197,31 @@ def test_candidate_feed_urls_excludes_non_standard_paths() -> None:
     assert "https://hwupgrade.it/rss/reviews" not in paths
 
 
-def test_fetch_feed_recursive_rejects_html_response(sample_rss_bytes: bytes) -> None:
-    """_fetch_feed_recursive rifiuta risposte HTML con errore chiaro."""
-    from core.feed_fetcher import _fetch_feed_recursive
+def test_fetch_candidate_rejects_html_response() -> None:
+    """_fetch_candidate rifiuta risposte HTML con errore chiaro."""
+    from core.feed_fetcher import _fetch_candidate
 
-    html_response = MagicMock(
-        content=b"<!DOCTYPE html><html><head><title>Just a moment...</title>"
-        b"</head><body>Cloudflare challenge</body></html>",
+    html_response = FakeResponse(
+        b"<!DOCTYPE html><html><body>Not a feed</body></html>",
         url="https://example.com/rss/news",
-        raise_for_status=MagicMock(),
-        status_code=200,
     )
-    with patch(
-        "core.feed_http.requests.get", return_value=html_response
-    ), patch("core.feed_http._HAS_CURL_CFFI", False):
-        with pytest.raises(FeedParseError) as exc_info:
-            _fetch_feed_recursive(
-                "https://example.com/rss/news", "src1", 15
-            )
-    assert "HTML" in str(exc_info.value) or "WAF" in str(exc_info.value)
+    with patch("core.feed_http.requests.get", return_value=html_response):
+        with pytest.raises(FeedParseError, match="HTML"):
+            _fetch_candidate("https://example.com/rss/news", "src1", 15)
+
+
+def test_challenge_page_without_curl_fallback_is_reported_as_block() -> None:
+    challenge = FakeResponse(
+        b"<!DOCTYPE html><html><head><title>Just a moment...</title></head></html>"
+    )
+    with (
+        patch("core.feed_http.requests.get", return_value=challenge),
+        patch("core.feed_http._HAS_CURL_CFFI", False),
+        patch("core.feed_http.cf_requests", None),
+    ):
+        with pytest.raises(FeedFetchError, match="anti-bot") as exc_info:
+            fetch_and_parse("https://example.com/feed.xml", "src1")
+    assert exc_info.value.status_code == 200
 
 
 def test_browser_headers_no_br_when_brotli_missing() -> None:
@@ -292,3 +284,49 @@ def test_candidate_feed_urls_site_overrides_follow_standard_paths() -> None:
     idx_rss = paths.index("https://www.bloomberg.com/rss.xml")
     idx_override = paths.index("https://feeds.bloomberg.com/news.rss")
     assert idx_rss < idx_override
+
+
+def test_offline_homepage_fails_after_one_request() -> None:
+    import requests
+
+    with patch(
+        "core.feed_http.requests.get",
+        side_effect=requests.exceptions.ConnectionError("offline"),
+    ) as get:
+        with pytest.raises(FeedFetchError):
+            fetch_and_parse("https://example.com/", "src1")
+    assert get.call_count == 1
+
+
+def test_missing_homepage_still_tries_conventional_paths(sample_rss_bytes: bytes) -> None:
+    responses = {
+        "https://example.com/": FakeResponse(b"", status_code=404),
+        "https://example.com/rss.xml": FakeResponse(sample_rss_bytes),
+    }
+    with patch(
+        "core.feed_http.requests.get",
+        side_effect=lambda url, **_: responses.get(url, FakeResponse(b"", status_code=404)),
+    ):
+        title, items = fetch_and_parse("https://example.com/", "src1")
+    assert title == "Feed di Prova"
+    assert len(items) == 2
+
+
+def test_anchor_fallback_is_bounded_and_stays_on_site() -> None:
+    anchors = "".join(f'<a href="/feed-{i}">x</a>' for i in range(60))
+    html = (
+        '<html><body><a href="https://other.example/feed">x</a>'
+        '<a href="javascript:feed()">x</a>' + anchors + "</body></html>"
+    ).encode()
+    links = extract_feed_links(html, "https://www.example.com/")
+    assert links == [f"https://www.example.com/feed-{i}" for i in range(5)]
+
+
+def test_declared_feed_links_drop_non_http_schemes() -> None:
+    html = (
+        b'<html><head>'
+        b'<link rel="alternate" type="application/rss+xml" href="file:///etc/passwd">'
+        b'<link rel="alternate" type="application/rss+xml" href="https://feeds.example.net/x">'
+        b"</head></html>"
+    )
+    assert extract_feed_links(html, "https://example.com/") == ["https://feeds.example.net/x"]

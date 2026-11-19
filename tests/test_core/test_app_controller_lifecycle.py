@@ -27,6 +27,9 @@ class _FeedManager:
     def set_event_sink(self, event_sink) -> None:  # type: ignore[no-untyped-def]
         self.event_sink = event_sink
 
+    def close(self) -> None:
+        return None
+
     def get_all(self):  # type: ignore[no-untyped-def]
         return []
 

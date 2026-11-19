@@ -14,7 +14,7 @@ from core.exceptions import ConfigError, ConfigValidationError
 
 def test_default_settings(tmp_paths: Path) -> None:
     manager = SettingsManager()
-    assert manager.settings.refresh_interval_minutes == 1
+    assert manager.settings.refresh_interval_minutes == 15
     assert manager.settings.max_items_per_feed == 50
     assert manager.settings.mark_read_on_select is True
 
@@ -32,7 +32,7 @@ def test_invalid_value_raises_without_mutating_canonical_state(tmp_paths: Path) 
     with pytest.raises(ConfigValidationError):
         manager.update({"refresh_interval_minutes": -1})
 
-    assert manager.settings.refresh_interval_minutes == 1
+    assert manager.settings.refresh_interval_minutes == 15
 
     with pytest.raises(ConfigValidationError):
         manager.set("max_items_per_feed", 0)
@@ -63,7 +63,7 @@ def test_snapshot_is_detached_from_canonical_settings(tmp_paths: Path) -> None:
 
     snapshot.refresh_interval_minutes = 60
 
-    assert manager.settings.refresh_interval_minutes == 1
+    assert manager.settings.refresh_interval_minutes == 15
 
 
 def test_invalid_key_raises(tmp_paths: Path) -> None:
@@ -78,7 +78,7 @@ def test_reset(tmp_paths: Path) -> None:
     manager = SettingsManager()
     manager.set("refresh_interval_minutes", 30)
     manager.reset()
-    assert manager.settings.refresh_interval_minutes == 1
+    assert manager.settings.refresh_interval_minutes == 15
 
 
 def test_corrupt_file_falls_back(tmp_paths: Path) -> None:
@@ -86,7 +86,7 @@ def test_corrupt_file_falls_back(tmp_paths: Path) -> None:
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     settings_path.write_text("{ invalid json", encoding="utf-8")
     manager = SettingsManager()
-    assert manager.settings.refresh_interval_minutes == 1
+    assert manager.settings.refresh_interval_minutes == 15
 
 
 def test_unknown_old_keys_do_not_reset_valid_settings(tmp_paths: Path) -> None:
@@ -119,7 +119,7 @@ def test_non_object_json_falls_back_to_defaults(tmp_paths: Path) -> None:
 
     manager = SettingsManager()
 
-    assert manager.settings.refresh_interval_minutes == 1
+    assert manager.settings.refresh_interval_minutes == 15
 
 
 def test_unreadable_file_falls_back_to_defaults(tmp_paths: Path) -> None:
@@ -130,4 +130,4 @@ def test_unreadable_file_falls_back_to_defaults(tmp_paths: Path) -> None:
     with patch("pathlib.Path.read_text", side_effect=OSError("permission denied")):
         manager = SettingsManager()
 
-    assert manager.settings.refresh_interval_minutes == 1
+    assert manager.settings.refresh_interval_minutes == 15

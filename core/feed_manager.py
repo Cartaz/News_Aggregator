@@ -30,13 +30,30 @@ logger = logging.getLogger(__name__)
 FeedEventSink = Callable[[str, dict[str, Any]], None]
 
 
+def _invalidates_cached_url(exc: FeedFetchError | FeedParseError) -> bool:
+    """Only a gone URL or non-feed content justifies a new discovery."""
+    if isinstance(exc, FeedParseError):
+        return True
+    return exc.status_code in {404, 410}
+
+
 class FeedManager:
-    """Own feed storage, locking, persistence and feed-level mutations."""
+    """Own feed storage, locking, persistence and feed-level mutations.
+
+    Persistence has two speeds. Catalog edits the user makes (add, remove,
+    rename/categorize) are transactional: written to disk before they become
+    visible, so a disk error is reported to the user. High-frequency changes
+    (refresh results, read state) are applied in memory, marked dirty and
+    written once by a short debounced flush, after a whole refresh batch, or
+    on ``close()``. A crash can lose at most the last few seconds of those.
+    """
 
     def __init__(
         self,
         storage_path: Path | None = None,
         event_sink: FeedEventSink | None = None,
+        *,
+        flush_delay: float = 2.0,
     ) -> None:
         self._path = storage_path or Paths.FEEDS_FILE
         self._sources: dict[str, FeedSource] = {}
@@ -44,9 +61,15 @@ class FeedManager:
         self._next_source_epoch = 0
         self._max_items_per_feed = FeedDefaults.MAX_ITEMS_PER_FEED
         self._lock = threading.RLock()
+        # Serializes writers of the catalog file (one temporary file path).
         self._write_lock = threading.Lock()
         self._event_sink = event_sink
-        Paths.ensure_user_dirs()
+        self._flush_delay = max(0.0, float(flush_delay))
+        self._dirty_generation = 0
+        self._persisted_generation = 0
+        self._flush_timer: threading.Timer | None = None
+        self._batch_depth = 0
+        self._closed = False
         self.load()
 
     def set_max_items_per_feed(self, limit: int) -> None:
@@ -68,9 +91,63 @@ class FeedManager:
             for source_id, source in self._sources.items()
         }
 
-    def _snapshot_catalog(self) -> dict[str, FeedSource]:
+    def _mark_dirty_locked(self) -> None:
+        """Record an in-memory change that the next flush must write."""
+        self._dirty_generation += 1
+
+    def _schedule_flush(self) -> None:
+        """Debounce one background flush unless a batch will flush at its end."""
         with self._lock:
-            return self._snapshot_catalog_locked()
+            if (
+                self._closed
+                or self._batch_depth
+                or self._flush_timer is not None
+                or self._dirty_generation == self._persisted_generation
+            ):
+                return
+            timer = threading.Timer(self._flush_delay, self._flush_in_background)
+            timer.daemon = True
+            self._flush_timer = timer
+        timer.start()
+
+    def _flush_in_background(self) -> None:
+        with self._lock:
+            self._flush_timer = None
+        try:
+            self.flush()
+        except FeedError:
+            # State stays dirty: the next change, batch end or close() retries.
+            logger.exception("Salvataggio differito dei feed non riuscito")
+
+    def flush(self) -> None:
+        """Write pending in-memory changes, if any. Raises ``FeedError``."""
+        with self._write_lock:
+            with self._lock:
+                generation = self._dirty_generation
+                if generation == self._persisted_generation:
+                    return
+                catalog = self._snapshot_catalog_locked()
+            self._persist_catalog(catalog)
+            with self._lock:
+                self._persisted_generation = max(self._persisted_generation, generation)
+
+    def close(self) -> None:
+        """Stop deferred writes and persist everything still pending."""
+        with self._lock:
+            self._closed = True
+            timer = self._flush_timer
+            self._flush_timer = None
+        if timer is not None:
+            timer.cancel()
+        try:
+            self.flush()
+        except FeedError:
+            logger.exception("Salvataggio finale dei feed non riuscito")
+
+    @property
+    def has_pending_changes(self) -> bool:
+        with self._lock:
+            return self._dirty_generation != self._persisted_generation
 
     @staticmethod
     def _age_cutoff() -> datetime:
@@ -134,9 +211,9 @@ class FeedManager:
 
     def _persist_catalog(self, catalog: dict[str, FeedSource]) -> None:
         """Atomically stream one detached catalog without holding the state lock."""
-        Paths.ensure_user_dirs()
         temporary = self._path.with_name(f".{self._path.name}.tmp")
         try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
             with temporary.open("w", encoding="utf-8") as handle:
                 handle.write('{"sources":[')
                 for index, source in enumerate(catalog.values()):
@@ -159,9 +236,20 @@ class FeedManager:
             raise FeedError(f"Impossibile salvare i feed: {exc}") from exc
 
     def save(self) -> None:
-        """Persist the current catalog snapshot without blocking state readers."""
+        """Persist the whole current catalog now, pending changes included."""
         with self._write_lock:
-            self._persist_catalog(self._snapshot_catalog())
+            with self._lock:
+                generation = self._dirty_generation
+                catalog = self._snapshot_catalog_locked()
+            self._persist_catalog(catalog)
+            with self._lock:
+                self._persisted_generation = max(self._persisted_generation, generation)
+
+    def _persist_transaction(self, catalog: dict[str, FeedSource], generation: int) -> None:
+        """Write a candidate catalog taken at ``generation`` (caller owns write lock)."""
+        self._persist_catalog(catalog)
+        with self._lock:
+            self._persisted_generation = max(self._persisted_generation, generation)
 
     def add(self, url: str, title: str = "") -> FeedSource:
         normalized = url.strip()
@@ -173,16 +261,17 @@ class FeedManager:
                 for existing in self._sources.values():
                     if existing.url == normalized:
                         raise FeedDuplicateError(normalized)
+                generation = self._dirty_generation
                 candidate = self._snapshot_catalog_locked()
 
             source = FeedSource(url=normalized, title=title or normalized)
             candidate[source.id] = self._snapshot_source(source)
-            self._persist_catalog(candidate)
+            self._persist_transaction(candidate, generation)
 
             with self._lock:
-                self._sources = candidate
+                self._sources[source.id] = source
                 self._source_epochs[source.id] = self._allocate_source_epoch()
-                snapshot = self._snapshot_source(self._sources[source.id])
+                snapshot = self._snapshot_source(source)
 
         self._emit_event(
             "feed_added",
@@ -196,13 +285,14 @@ class FeedManager:
             with self._lock:
                 if source_id not in self._sources:
                     raise FeedNotFoundError(source_id)
+                generation = self._dirty_generation
                 candidate = self._snapshot_catalog_locked()
                 removed = candidate.pop(source_id)
 
-            self._persist_catalog(candidate)
+            self._persist_transaction(candidate, generation)
 
             with self._lock:
-                self._sources = candidate
+                self._sources.pop(source_id, None)
                 self._source_epochs.pop(source_id, None)
 
         self._emit_event(
@@ -221,13 +311,6 @@ class FeedManager:
         with self._lock:
             return [self._snapshot_source(source) for source in self._sources.values()]
 
-    @staticmethod
-    def _normalize_fetch_result(raw: Any, requested_url: str) -> FeedFetchResult:
-        if isinstance(raw, FeedFetchResult):
-            return raw
-        title, items, resolved_url = raw
-        return FeedFetchResult(title, items, resolved_url or requested_url)
-
     def _fetch_effective_url(
         self,
         source: FeedSource,
@@ -235,19 +318,20 @@ class FeedManager:
         cancel_event: threading.Event | None,
     ) -> FeedFetchResult:
         try:
-            kwargs: dict[str, Any] = {}
-            if source.http_etag:
-                kwargs["etag"] = source.http_etag
-            if source.http_last_modified:
-                kwargs["last_modified"] = source.http_last_modified
-            if cancel_event is not None:
-                kwargs["cancel_event"] = cancel_event
-            raw = fetch_and_parse_resolved(url, source.id, **kwargs)
-            return self._normalize_fetch_result(raw, url)
+            return fetch_and_parse_resolved(
+                url,
+                source.id,
+                etag=source.http_etag,
+                last_modified=source.http_last_modified,
+                cancel_event=cancel_event,
+            )
         except RefreshCancelledError:
             raise
-        except (FeedFetchError, FeedParseError):
+        except (FeedFetchError, FeedParseError) as exc:
             if not source.http_etag and not source.http_last_modified:
+                raise
+            if isinstance(exc, FeedFetchError) and exc.is_transient:
+                # Network trouble says nothing about the validators.
                 raise
             logger.info(
                 "Richiesta condizionale fallita per %s; riprovo senza validator",
@@ -256,15 +340,7 @@ class FeedManager:
             source.http_etag = ""
             source.http_last_modified = ""
             self._raise_if_cancelled(cancel_event)
-            if cancel_event is None:
-                raw = fetch_and_parse_resolved(url, source.id)
-            else:
-                raw = fetch_and_parse_resolved(
-                    url,
-                    source.id,
-                    cancel_event=cancel_event,
-                )
-            return self._normalize_fetch_result(raw, url)
+            return self._fetch_effective_url(source, url, cancel_event)
 
     def _fetch_source(
         self,
@@ -279,6 +355,8 @@ class FeedManager:
             except RefreshCancelledError:
                 raise
             except (FeedFetchError, FeedParseError) as exc:
+                if not _invalidates_cached_url(exc):
+                    raise
                 logger.info(
                     "Feed cached non più valido per %s (%s); rifaccio discovery",
                     source.url,
@@ -307,37 +385,45 @@ class FeedManager:
         result: FeedFetchResult,
         visible_items: list[FeedItem] | None,
         cancel_event: threading.Event | None,
-    ) -> tuple[FeedSource, list[FeedItem]] | None:
+    ) -> tuple[FeedSource, list[FeedItem], bool] | None:
+        """Commit one fetch result; return snapshot, new items and first-fetch flag."""
         self._raise_if_cancelled(cancel_event)
 
-        with self._write_lock:
-            self._raise_if_cancelled(cancel_event)
-            with self._lock:
-                if not self._source_is_current(source_id, epoch):
-                    return None
-                candidate = self._snapshot_catalog_locked()
-                current = candidate[source_id]
-
+        with self._lock:
+            if not self._source_is_current(source_id, epoch):
+                return None
+            current = self._snapshot_source(self._sources[source_id])
+            first_fetch = current.last_updated is None
             if result.not_modified:
+                persisted_metadata = (
+                    current.resolved_feed_url,
+                    current.http_etag,
+                    current.http_last_modified,
+                )
                 self._store_fetch_metadata(current, result)
                 current.last_updated = datetime.now(timezone.utc)
                 current.last_error = ""
                 brand_new: list[FeedItem] = []
+                # A 304 is worth writing only if the cache validators moved.
+                changed = persisted_metadata != (
+                    current.resolved_feed_url,
+                    current.http_etag,
+                    current.http_last_modified,
+                )
             else:
                 if not current.title or current.title == current.url:
                     current.title = result.title
                 self._store_fetch_metadata(current, result)
                 brand_new = current.replace_items(visible_items or [])
+                changed = True
 
-            self._persist_catalog(candidate)
+            self._sources[source_id] = current
+            if changed:
+                self._mark_dirty_locked()
+            committed = self._snapshot_source(current)
 
-            with self._lock:
-                if not self._source_is_current(source_id, epoch):
-                    return None
-                self._sources = candidate
-                committed = self._snapshot_source(current)
-
-        return committed, brand_new
+        self._schedule_flush()
+        return committed, brand_new, first_fetch
 
     def refresh(
         self,
@@ -365,17 +451,18 @@ class FeedManager:
             )
             raise
         except (FeedFetchError, FeedParseError) as exc:
-            with self._write_lock:
-                with self._lock:
-                    if not self._source_is_current(source_id, epoch):
-                        self._emit_event(
-                            "feed_refresh_cancelled",
-                            {"source_id": source_id, "url": source.url},
-                        )
-                        raise RefreshCancelledError() from exc
+            with self._lock:
+                stale = not self._source_is_current(source_id, epoch)
+                if not stale:
                     current = self._snapshot_source(self._sources[source_id])
                     current.last_error = str(exc)
                     self._sources[source_id] = current
+            if stale:
+                self._emit_event(
+                    "feed_refresh_cancelled",
+                    {"source_id": source_id, "url": source.url},
+                )
+                raise RefreshCancelledError() from exc
             self._emit_event(
                 "feed_refresh_failed",
                 {"source_id": source_id, "error": str(exc)},
@@ -415,12 +502,13 @@ class FeedManager:
             )
             raise RefreshCancelledError()
 
-        committed_source, brand_new = committed
+        committed_source, brand_new, first_fetch = committed
         self._emit_refresh_completed(
             source_id,
             committed_source,
             brand_new,
             not_modified=result.not_modified,
+            announce_new_items=not first_fetch,
         )
         if result.not_modified:
             logger.info("Feed %s non modificato (HTTP 304)", committed_source.url)
@@ -447,6 +535,25 @@ class FeedManager:
         if total == 0:
             return {"success": 0, "failed": 0, "errors": []}
 
+        with self._lock:
+            self._batch_depth += 1
+        try:
+            return self._refresh_batch(sources, progress_cb, cancel_event)
+        finally:
+            with self._lock:
+                self._batch_depth -= 1
+            try:
+                self.flush()
+            except FeedError:
+                logger.exception("Salvataggio dei feed dopo l'aggiornamento non riuscito")
+
+    def _refresh_batch(
+        self,
+        sources: list[FeedSource],
+        progress_cb: Callable[[str, int, int], None] | None,
+        cancel_event: threading.Event | None,
+    ) -> dict[str, Any]:
+        total = len(sources)
         max_workers = min(FeedDefaults.REFRESH_MAX_WORKERS, total)
         success = 0
         cancelled = 0
@@ -459,10 +566,7 @@ class FeedManager:
         ) as executor:
             future_to_source: dict[Future[int], FeedSource] = {}
             for source in sources:
-                if cancel_event is None:
-                    future = executor.submit(self.refresh, source.id)
-                else:
-                    future = executor.submit(self.refresh, source.id, cancel_event)
+                future = executor.submit(self.refresh, source.id, cancel_event)
                 future_to_source[future] = source
 
             for future in as_completed(future_to_source):
@@ -500,79 +604,20 @@ class FeedManager:
         return result
 
     def mark_read(self, source_id: str, item_id: str) -> None:
-        with self._write_lock:
-            with self._lock:
-                if source_id not in self._sources:
-                    raise FeedNotFoundError(source_id)
-                candidate = self._snapshot_catalog_locked()
-                source = candidate[source_id]
-
-            changed = source.mark_read(item_id)
-            if not changed:
+        with self._lock:
+            if source_id not in self._sources:
+                raise FeedNotFoundError(source_id)
+            source = self._snapshot_source(self._sources[source_id])
+            if not source.mark_read(item_id):
                 raise FeedError(f"Articolo non trovato: {item_id}")
-            self._persist_catalog(candidate)
-
-            with self._lock:
-                self._sources = candidate
+            self._sources[source_id] = source
+            self._mark_dirty_locked()
+        self._schedule_flush()
 
         self._emit_event(
             "item_read_changed",
             {"source_id": source_id, "item_id": item_id, "read": True},
         )
-
-    def rename_feed(self, source_id: str, new_title: str) -> FeedSource:
-        cleaned = (new_title or "").strip()
-        if not cleaned:
-            raise FeedError("Il nuovo titolo non può essere vuoto")
-
-        with self._write_lock:
-            with self._lock:
-                if source_id not in self._sources:
-                    raise FeedNotFoundError(source_id)
-                candidate = self._snapshot_catalog_locked()
-                source = candidate[source_id]
-
-            source.title = cleaned
-            self._persist_catalog(candidate)
-
-            with self._lock:
-                self._sources = candidate
-                snapshot = self._snapshot_source(source)
-
-        self._emit_event(
-            "feed_renamed",
-            {"source_id": source_id, "new_title": cleaned},
-        )
-        logger.info("Feed %s rinominato in %r", source_id, cleaned)
-        return snapshot
-
-    def set_category(self, source_id: str, category: str) -> FeedSource:
-        cleaned = (category or "").strip()
-
-        with self._write_lock:
-            with self._lock:
-                if source_id not in self._sources:
-                    raise FeedNotFoundError(source_id)
-                candidate = self._snapshot_catalog_locked()
-                source = candidate[source_id]
-
-            source.category = cleaned
-            self._persist_catalog(candidate)
-
-            with self._lock:
-                self._sources = candidate
-                snapshot = self._snapshot_source(source)
-
-        self._emit_event(
-            "feed_category_changed",
-            {"source_id": source_id, "category": cleaned},
-        )
-        logger.info(
-            "Feed %s assegnato a categoria %r",
-            source_id,
-            cleaned or "(nessuna)",
-        )
-        return snapshot
 
     def update_feed(self, source_id: str, title: str, category: str) -> FeedSource:
         """Atomically update editable feed metadata and persist it once."""
@@ -585,16 +630,21 @@ class FeedManager:
             with self._lock:
                 if source_id not in self._sources:
                     raise FeedNotFoundError(source_id)
+                generation = self._dirty_generation
                 candidate = self._snapshot_catalog_locked()
                 source = candidate[source_id]
 
             source.title = cleaned_title
             source.category = cleaned_category
-            self._persist_catalog(candidate)
+            self._persist_transaction(candidate, generation)
 
             with self._lock:
-                self._sources = candidate
-                snapshot = self._snapshot_source(source)
+                # Re-read: a refresh may have committed new items meanwhile.
+                current = self._snapshot_source(self._sources[source_id])
+                current.title = cleaned_title
+                current.category = cleaned_category
+                self._sources[source_id] = current
+                snapshot = self._snapshot_source(current)
 
         self._emit_event(
             "feed_updated",
@@ -618,13 +668,27 @@ class FeedManager:
                 {source.category for source in self._sources.values() if source.category}
             )
 
-    def get_feeds_by_category(self, category: str) -> list[FeedSource]:
+    def total_unread_count(self) -> int:
+        """Count unread items inside the visible age window without copying."""
+        cutoff = self._age_cutoff()
         with self._lock:
-            return [
-                self._snapshot_source(source)
+            return sum(
+                1
                 for source in self._sources.values()
-                if source.category == category
+                for item in source.items
+                if not item.read and item.published >= cutoff
+            )
+
+    def get_items_for_feed(self, source_id: str, limit: int = 200) -> list[FeedItem]:
+        cutoff = self._age_cutoff()
+        with self._lock:
+            if source_id not in self._sources:
+                raise FeedNotFoundError(source_id)
+            items = [
+                item for item in self._sources[source_id].items if item.published >= cutoff
             ]
+        items.sort(key=lambda item: item.published, reverse=True)
+        return items[:limit]
 
     def get_items_by_category(
         self, category: str, limit: int = 200
@@ -660,6 +724,7 @@ class FeedManager:
         brand_new: list[FeedItem],
         *,
         not_modified: bool = False,
+        announce_new_items: bool = True,
     ) -> None:
         self._emit_event(
             "feed_refresh_completed",
@@ -672,7 +737,9 @@ class FeedManager:
                 "not_modified": not_modified,
             },
         )
-        if brand_new:
+        # The first fetch of a feed fills an empty source: those items are the
+        # initial catalog, not news worth a desktop notification.
+        if brand_new and announce_new_items:
             self._emit_event(
                 "new_items_available",
                 {

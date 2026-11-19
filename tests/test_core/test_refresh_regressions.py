@@ -9,6 +9,7 @@ from unittest.mock import patch
 import pytest
 
 from config.constants import FeedDefaults
+from core.feed_fetcher import FeedFetchResult
 from core.feed_manager import FeedManager
 from core.models import FeedItem
 
@@ -42,7 +43,7 @@ def test_stale_feed_entries_are_not_reported_as_new_repeatedly(
 
     with patch(
         "core.feed_manager.fetch_and_parse_resolved",
-        return_value=("Example", [recent, stale], source.url),
+        return_value=FeedFetchResult("Example", [recent, stale], source.url),
     ):
         first_count = manager.refresh(source.id)
         second_count = manager.refresh(source.id)
@@ -63,7 +64,7 @@ def test_stale_only_feed_reports_zero_new_items(manager: FeedManager) -> None:
 
     with patch(
         "core.feed_manager.fetch_and_parse_resolved",
-        return_value=("Example", [stale], source.url),
+        return_value=FeedFetchResult("Example", [stale], source.url),
     ):
         assert manager.refresh(source.id) == 0
 

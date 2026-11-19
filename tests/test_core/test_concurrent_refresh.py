@@ -32,7 +32,7 @@ def test_refresh_all_uses_bounded_concurrency(manager: FeedManager) -> None:
     called: list[str] = []
     workers: list[threading.Thread] = []
 
-    def fake_refresh(source_id: str) -> int:
+    def fake_refresh(source_id: str, _cancel_event: object = None) -> int:
         nonlocal active, max_active
         worker = threading.current_thread()
         with lock:
@@ -65,7 +65,7 @@ def test_refresh_all_isolates_feed_errors(manager: FeedManager) -> None:
     unexpected = manager.add("https://example.com/unexpected-error.xml")
     progress: list[tuple[str, int, int]] = []
 
-    def fake_refresh(source_id: str) -> int:
+    def fake_refresh(source_id: str, _cancel_event: object = None) -> int:
         if source_id == expected.id:
             raise FeedError("errore previsto")
         if source_id == unexpected.id:

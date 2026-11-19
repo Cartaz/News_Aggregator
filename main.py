@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import logging
 import os
+import signal
 import sys
 from logging.handlers import RotatingFileHandler
-from typing import Any
-
-from core.native_memory import bootstrap_allocator, trim_process_memory
 
 
 def setup_logging() -> None:
@@ -40,10 +38,7 @@ def setup_logging() -> None:
 
 
 def main() -> int:
-    # This must run before importing Qt, networking or the application graph so
-    # the replacement Linux/glibc process starts with the measured arena limit.
-    bootstrap_allocator()
-
+    from PySide6.QtCore import QTimer
     from PySide6.QtGui import QFont, QIcon
     from PySide6.QtWidgets import QApplication
 
@@ -62,32 +57,26 @@ def main() -> int:
     app.setApplicationName(AppMeta.NAME)
     app.setApplicationDisplayName(AppMeta.DISPLAY_NAME)
     app.setApplicationVersion(AppMeta.VERSION)
-    app.setOrganizationName(AppMeta.AUTHOR)
     app.setQuitOnLastWindowClosed(False)
     app.setFont(QFont("Noto Sans"))
     if Paths.APP_ICON.exists():
         app.setWindowIcon(QIcon(str(Paths.APP_ICON)))
 
+    # Ctrl+C / SIGTERM quit cleanly through the normal shutdown path. Python
+    # only runs signal handlers when the interpreter gets control, so a cheap
+    # timer wakes it while the Qt event loop is idle.
+    for handled in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(handled, lambda *_: app.quit())
+    signal_wakeup = QTimer()
+    signal_wakeup.timeout.connect(lambda: None)
+    signal_wakeup.start(500)
+
     controller = AppController()
     ui_controller = UiController(controller, open_external=open_external_url)
-
-    def reclaim_memory_after_refresh(
-        event_name: str,
-        payload: dict[str, Any],
-    ) -> None:
-        if event_name == "refresh_state_changed" and not bool(
-            payload.get("active", False)
-        ):
-            # Controller events are emitted by the refresh worker, so this trim
-            # does not block the Qt GUI thread during normal operation.
-            trim_process_memory()
-
-    controller.register_event_listener(reclaim_memory_after_refresh)
 
     window: QmlMainWindow | None = None
     exit_code: int | None = None
     try:
-        controller.start_auto_refresh()
         window = QmlMainWindow(controller, ui_controller)
         tray = TrayIcon(window)
 
@@ -106,6 +95,7 @@ def main() -> int:
         tray.set_unread_count(controller.get_total_unread_count())
         tray.show()
         window.show()
+        controller.start()
 
         exit_code = app.exec()
         return exit_code
@@ -114,7 +104,6 @@ def main() -> int:
             window.shutdown()
         else:
             ui_controller.shutdown()
-        controller.unregister_event_listener(reclaim_memory_after_refresh)
         controller.shutdown()
         if exit_code is None:
             logger.info("Shutdown completato durante avvio o event loop interrotto")

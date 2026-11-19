@@ -12,6 +12,7 @@ import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
@@ -19,6 +20,7 @@ from urllib.parse import urljoin, urlparse
 import requests
 
 from config.constants import FeedDefaults, Paths
+from core.feed_http import read_limited
 from core.models import FeedSource
 
 logger = logging.getLogger(__name__)
@@ -116,17 +118,12 @@ def _icon_extension(data: bytes, url: str, content_type: str) -> str:
     return ""
 
 
-def _read_response(response: requests.Response, limit: int) -> bytes:
-    chunks: list[bytes] = []
-    total = 0
-    for chunk in response.iter_content(chunk_size=32 * 1024):
-        if not chunk:
-            continue
-        total += len(chunk)
-        if total > limit:
-            raise ValueError(f"risorsa oltre il limite di {limit} byte")
-        chunks.append(chunk)
-    return b"".join(chunks)
+@dataclass(frozen=True, slots=True)
+class _Download:
+    data: bytes
+    url: str
+    content_type: str
+    encoding: str
 
 
 class SiteIconService:
@@ -147,6 +144,8 @@ class SiteIconService:
         self._lock = threading.RLock()
         self._stop_event = threading.Event()
         self._pending: dict[str, list[tuple[str, IconReady]]] = {}
+        # Disk lookups per cache key; the UI asks for every feed on each refresh.
+        self._known_paths: dict[str, Path | None] = {}
         self._closed = False
 
     def _executor_locked(self) -> ThreadPoolExecutor:
@@ -221,21 +220,14 @@ class SiteIconService:
             return None
         candidates: list[str] = []
         try:
-            response = requests.get(
+            page = self._download(
                 origin + "/",
-                timeout=self._timeout,
-                headers={
-                    "User-Agent": FeedDefaults.USER_AGENT,
-                    "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.2",
-                },
-                allow_redirects=True,
-                stream=True,
+                "text/html,application/xhtml+xml;q=0.9,*/*;q=0.2",
+                _HTML_LIMIT,
             )
-            response.raise_for_status()
-            html = _read_response(response, _HTML_LIMIT)
             parser = _IconLinkParser()
-            parser.feed(html.decode(response.encoding or "utf-8", errors="replace"))
-            base_url = response.url or origin + "/"
+            parser.feed(page.data.decode(page.encoding or "utf-8", errors="replace"))
+            base_url = page.url or origin + "/"
             ranked = sorted(
                 parser.candidates,
                 key=lambda entry: entry[0],
@@ -263,27 +255,15 @@ class SiteIconService:
             if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
                 continue
             try:
-                response = requests.get(
+                icon = self._download(
                     candidate,
-                    timeout=self._timeout,
-                    headers={
-                        "User-Agent": FeedDefaults.USER_AGENT,
-                        "Accept": (
-                            "image/avif,image/webp,image/svg+xml,image/*,*/*;q=0.2"
-                        ),
-                    },
-                    allow_redirects=True,
-                    stream=True,
+                    "image/avif,image/webp,image/svg+xml,image/*,*/*;q=0.2",
+                    _ICON_LIMIT,
                 )
-                response.raise_for_status()
-                data = _read_response(response, _ICON_LIMIT)
+                data = icon.data
                 if not data:
                     continue
-                extension = _icon_extension(
-                    data,
-                    response.url or candidate,
-                    response.headers.get("Content-Type", ""),
-                )
+                extension = _icon_extension(data, icon.url or candidate, icon.content_type)
                 if not extension:
                     continue
                 path = self._cache_dir / f"{key}{extension}"
@@ -291,6 +271,8 @@ class SiteIconService:
                 temporary.write_bytes(data)
                 temporary.replace(path)
                 self._miss_path(key).unlink(missing_ok=True)
+                with self._lock:
+                    self._known_paths[key] = path
                 return path
             except Exception:
                 logger.debug(
@@ -307,14 +289,38 @@ class SiteIconService:
             logger.debug("Impossibile aggiornare cache negativa favicon", exc_info=True)
         return None
 
+    def _download(self, url: str, accept: str, limit: int) -> _Download:
+        """GET one bounded resource and always release the connection."""
+        with requests.get(
+            url,
+            timeout=self._timeout,
+            headers={"User-Agent": FeedDefaults.USER_AGENT, "Accept": accept},
+            allow_redirects=True,
+            stream=True,
+        ) as response:
+            response.raise_for_status()
+            return _Download(
+                data=read_limited(response.iter_content(32 * 1024), limit),
+                url=response.url or url,
+                content_type=response.headers.get("Content-Type", ""),
+                encoding=response.encoding or "",
+            )
+
     def _cached_path(self, key: str) -> Path | None:
+        with self._lock:
+            if key in self._known_paths:
+                return self._known_paths[key]
+        found: Path | None = None
         for path in self._cache_dir.glob(f"{key}.*"):
             if (
                 path.suffix in {".svg", ".png", ".ico", ".gif", ".jpg", ".webp"}
                 and path.is_file()
             ):
-                return path
-        return None
+                found = path
+                break
+        with self._lock:
+            # A download may have finished meanwhile; never overwrite its result.
+            return self._known_paths.setdefault(key, found) or found
 
     def _miss_path(self, key: str) -> Path:
         return self._cache_dir / f"{key}.miss"

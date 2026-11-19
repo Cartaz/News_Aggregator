@@ -108,3 +108,52 @@ def test_article_model_filters_without_duplicating_canonical_state() -> None:
     model.set_filter("", True)
     assert model.rowCount() == 1
     assert model.row(0).item.id == unread.id
+
+
+def _counting(model: ArticleListModel) -> dict[str, int]:
+    counts = {"reset": 0, "inserted": 0, "changed": 0}
+    model.modelReset.connect(lambda: counts.__setitem__("reset", counts["reset"] + 1))
+    model.rowsInserted.connect(lambda *_: counts.__setitem__("inserted", counts["inserted"] + 1))
+    model.dataChanged.connect(lambda *_: counts.__setitem__("changed", counts["changed"] + 1))
+    return counts
+
+
+def test_article_model_reload_with_same_articles_does_not_reset() -> None:
+    model = ArticleListModel()
+    rows = [item("feed", "One"), item("feed", "Two")]
+    model.replace_items(rows, {"feed": "Feed"})
+    counts = _counting(model)
+
+    model.replace_items([rows[0], replace(rows[1], read=True)], {"feed": "Feed"})
+
+    assert counts["reset"] == 0
+    assert counts["changed"] >= 1
+    assert model.row(1).item.read is True
+
+
+def test_article_model_inserts_new_articles_on_top_without_reset() -> None:
+    model = ArticleListModel()
+    old = [item("feed", "One"), item("feed", "Two")]
+    model.replace_items(old, {"feed": "Feed"})
+    counts = _counting(model)
+
+    model.replace_items([item("feed", "Fresh"), *old], {"feed": "Feed"})
+
+    assert counts == {"reset": 0, "inserted": 1, "changed": 1}
+    assert model.rowCount() == 3
+    assert model.row(0).item.title == "Fresh"
+
+
+def test_article_model_marks_read_in_place() -> None:
+    model = ArticleListModel()
+    rows = [item("feed", "One"), item("feed", "Two")]
+    model.replace_items(rows, {"feed": "Feed"})
+    model.set_filter("", unread_only=True)
+    counts = _counting(model)
+
+    assert model.set_read(rows[0].id) is True
+
+    assert counts["reset"] == 0
+    assert model.rowCount() == 2  # stays visible until the filter is re-applied
+    assert model.row(0).item.read is True
+    assert model.set_read(rows[0].id) is False
