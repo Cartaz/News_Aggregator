@@ -268,11 +268,26 @@ Item {
                     NeuButton { width: 90; height: 34; label: "Apri log"; textSize: 11; onClicked: root.openLog() }
                 }
                 Item { width: 1; height: 12 }
-                Row {
-                    anchors.right: parent.right
-                    spacing: 10
-                    NeuButton { width: 110; height: 42; label: "Annulla"; cornerRadius: 14; textSize: 13; enabled: !root.modalBusy; onClicked: root.closeDialog() }
-                    NeuButton { width: 110; height: 42; label: root.modalBusy ? "Salvo…" : "Salva"; accent: true; cornerRadius: 14; textSize: 13; enabled: !root.modalBusy; onClicked: { root.modalBusy = true; backend.preferences.saveSettings(root.settingsInterval, root.settingsAutoRead, root.settingsNotify, root.settingsTray, root.settingsScale) } }
+                Item {
+                    width: parent.width
+                    height: 42
+                    Text {
+                        objectName: "settingsVersion"
+                        textFormat: Text.PlainText
+                        anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "Versione " + backend.appVersion
+                        color: Theme.textMuted
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Math.round(11 * Theme.fontScale)
+                        Accessible.name: text
+                    }
+                    Row {
+                        anchors.right: parent.right
+                        spacing: 10
+                        NeuButton { width: 110; height: 42; label: "Annulla"; cornerRadius: 14; textSize: 13; enabled: !root.modalBusy; onClicked: root.closeDialog() }
+                        NeuButton { width: 110; height: 42; label: root.modalBusy ? "Salvo…" : "Salva"; accent: true; cornerRadius: 14; textSize: 13; enabled: !root.modalBusy; onClicked: { root.modalBusy = true; backend.preferences.saveSettings(root.settingsInterval, root.settingsAutoRead, root.settingsNotify, root.settingsTray, root.settingsScale) } }
+                    }
                 }
             }
         }

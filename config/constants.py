@@ -16,7 +16,7 @@ class AppMeta:
 
     NAME = "news-aggregator"
     DISPLAY_NAME = "News Aggregator"
-    VERSION = "1.1.0"
+    VERSION = "1.2.0"
     LICENSE = "GPL-3.0-or-later"
 
 
