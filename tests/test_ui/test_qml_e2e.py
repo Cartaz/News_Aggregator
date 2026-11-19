@@ -306,3 +306,20 @@ def test_article_summary_cannot_enable_rich_text(qtbot, backend):
         assert expression.evaluate()[0] is True  # QQuickText.PlainText
     finally:
         window.shutdown()
+
+
+def test_settings_dialog_shows_the_application_version(qtbot, backend):
+    from config.constants import AppMeta
+
+    _manager, controller, ui = backend
+    window = QmlMainWindow(controller, ui)
+    try:
+        window.show()
+        dialogs = window.window.findChild(QObject, "appDialogs")
+        assert QMetaObject.invokeMethod(dialogs, "openSettings")
+        qtbot.waitUntil(lambda: window.window.findChild(QObject, "settingsVersion") is not None)
+        label = window.window.findChild(QObject, "settingsVersion")
+        assert label.property("text") == f"Versione {AppMeta.VERSION}"
+    finally:
+        window.window.hide()
+        window.shutdown()

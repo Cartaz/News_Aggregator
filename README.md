@@ -19,6 +19,7 @@ News Aggregator è un'applicazione desktop Python per aggregare feed RSS/Atom in
 - favicon delle sorgenti risolte in background, memorizzate in cache e rese monocromatiche arancioni dalla UI;
 - system tray e notifiche opzionali;
 - viewer del log applicativo;
+- versione installata visibile nel dialogo Impostazioni;
 - scala tipografica regolabile e responsive;
 - scorciatoie da tastiera e navigazione con frecce nella lista articoli.
 
