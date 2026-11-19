@@ -14,7 +14,6 @@ from shiboken6 import delete
 
 from config.constants import AppMeta, Paths, UIConstraints
 from core.app_controller import AppController
-from core.native_memory import trim_process_memory
 from ui.controller import UiController
 
 logger = logging.getLogger(__name__)
@@ -64,11 +63,6 @@ class QmlMainWindow(QObject):
         self._geometry_timer.setInterval(350)
         self._geometry_timer.timeout.connect(self._persist_geometry)
 
-        self._memory_trim_timer = QTimer(self)
-        self._memory_trim_timer.setSingleShot(True)
-        self._memory_trim_timer.setInterval(200)
-        self._memory_trim_timer.timeout.connect(trim_process_memory)
-
         self._window.installEventFilter(self)
 
         self.ui.requestQuit.connect(self.force_quit)
@@ -82,7 +76,6 @@ class QmlMainWindow(QObject):
         self._window.show()
 
     def restore_from_tray(self) -> None:
-        self._memory_trim_timer.stop()
         self._window.setPersistentGraphics(True)
         self._window.setPersistentSceneGraph(True)
         self._window.showNormal()
@@ -107,9 +100,6 @@ class QmlMainWindow(QObject):
         self._window.releaseResources()
         self._engine.collectGarbage()
         self._engine.trimComponentCache()
-        # Scene-graph cleanup can complete on the render thread after hide();
-        # trim shortly afterwards so those freed native pages can reach the OS.
-        self._memory_trim_timer.start()
 
     def force_quit(self) -> None:
         self._force_close = True
@@ -123,8 +113,6 @@ class QmlMainWindow(QObject):
         event_type = event.type()
         if event_type == QEvent.Type.Resize:
             self._geometry_timer.start()
-        elif event_type in {QEvent.Type.Show, QEvent.Type.WindowActivate}:
-            self.ui.sync()
         elif event_type == QEvent.Type.Close:
             self._persist_geometry()
             if (
@@ -160,7 +148,6 @@ class QmlMainWindow(QObject):
             return
         self._shutdown = True
         self._geometry_timer.stop()
-        self._memory_trim_timer.stop()
         self._window.removeEventFilter(self)
         self._window.hide()
         # Destroy QML bindings while adapters are still alive. Leaving the

@@ -12,7 +12,6 @@ import threading
 import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import asdict
-from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from config.constants import AppMeta, FeedDefaults, Paths
@@ -102,11 +101,6 @@ class AppController:
     def settings(self) -> Settings:
         return self._settings_manager.settings
 
-    @property
-    def settings_manager(self) -> SettingsManager:
-        """Compatibility access; new consumers should use controller commands."""
-        return self._settings_manager
-
     def get_refresh_state(self) -> dict[str, Any]:
         with self._refresh_lock:
             return self._refresh_state.snapshot()
@@ -134,10 +128,6 @@ class AppController:
         return self._settings_manager.update(
             {"window_width": int(width), "window_height": int(height)}
         )
-
-    def is_refreshing(self) -> bool:
-        with self._refresh_lock:
-            return self._refresh_state.active
 
     def _emit_refresh_state(self) -> None:
         self._emit_event("refresh_state_changed", self.get_refresh_state())
@@ -234,20 +224,11 @@ class AppController:
             self._refresh_state.feed_finished(source_id)
         self._emit_refresh_state()
 
-    def add_feed(self, url: str, title: str = "") -> FeedSource:
-        return self._feed_manager.add(url, title)
-
-    def remove_feed(self, source_id: str) -> None:
-        self._feed_manager.remove(source_id)
-
     def get_feed(self, source_id: str) -> FeedSource:
         return self._feed_manager.get(source_id)
 
     def get_all_feeds(self) -> list[FeedSource]:
         return self._feed_manager.get_all()
-
-    def get_recent_items(self, limit: int = 100) -> list[FeedItem]:
-        return self._feed_manager.get_all_items(limit)
 
     def get_items(
         self,
@@ -260,51 +241,14 @@ class AppController:
         if scope == "category":
             return self._feed_manager.get_items_by_category(identifier, limit)
         if scope == "feed":
-            source = self._feed_manager.get(identifier)
-            cutoff = datetime.now(timezone.utc) - timedelta(
-                hours=FeedDefaults.MAX_ITEM_AGE_HOURS
-            )
-            items = [item for item in source.items if item.published >= cutoff]
-            items.sort(key=lambda item: item.published, reverse=True)
-            return items[:limit]
+            return self._feed_manager.get_items_for_feed(identifier, limit)
         return self._feed_manager.get_all_items(limit)
-
-    def mark_read(self, source_id: str, item_id: str) -> None:
-        self._feed_manager.mark_read(source_id, item_id)
-
-    def rename_feed(self, source_id: str, new_title: str) -> FeedSource:
-        return self._feed_manager.rename_feed(source_id, new_title)
-
-    def set_category(self, source_id: str, category: str) -> FeedSource:
-        return self._feed_manager.set_category(source_id, category)
-
-    def update_feed(self, source_id: str, title: str, category: str) -> FeedSource:
-        return self._feed_manager.update_feed(source_id, title, category)
 
     def get_categories(self) -> list[str]:
         return self._feed_manager.get_categories()
 
-    def get_feeds_by_category(self, category: str) -> list[FeedSource]:
-        return self._feed_manager.get_feeds_by_category(category)
-
-    def get_items_by_category(
-        self, category: str, limit: int = 200
-    ) -> list[FeedItem]:
-        return self._feed_manager.get_items_by_category(category, limit)
-
-    def get_all_items(self, limit: int = 200) -> list[FeedItem]:
-        return self._feed_manager.get_all_items(limit)
-
     def get_total_unread_count(self) -> int:
-        cutoff = datetime.now(timezone.utc) - timedelta(
-            hours=FeedDefaults.MAX_ITEM_AGE_HOURS
-        )
-        return sum(
-            1
-            for source in self._feed_manager.get_all()
-            for item in source.items
-            if not item.read and item.published >= cutoff
-        )
+        return self._feed_manager.total_unread_count()
 
     def _submit_mutation(
         self,
@@ -437,6 +381,12 @@ class AppController:
             return False
         return True
 
+    def start(self) -> None:
+        """Begin normal operation: refresh now, then on the configured cadence."""
+        self.start_auto_refresh()
+        if not self.refresh_all_async():
+            logger.info("Refresh iniziale non avviato: occupato o shutdown in corso")
+
     def start_auto_refresh(self) -> None:
         with self._refresh_lock:
             if self._shutting_down:
@@ -448,9 +398,6 @@ class AppController:
             self._auto_timer = timer
             timer.start()
         logger.info("Auto-refresh schedulato ogni %d secondi", interval)
-
-    def stop_auto_refresh(self) -> None:
-        self._stop_auto_refresh()
 
     def _stop_auto_refresh(self) -> None:
         with self._refresh_lock:
@@ -566,6 +513,8 @@ class AppController:
 
         mutation_timeout = 2.0 if wait_timeout is None else max(0.0, wait_timeout)
         self._mutation_worker.shutdown(wait_timeout=mutation_timeout)
+        # Last: background work has stopped, so pending changes are final.
+        self._feed_manager.close()
 
         self._feed_manager.set_event_sink(None)
         with self._event_lock:

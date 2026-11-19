@@ -30,6 +30,9 @@ class _BlockingMutationFeedManager:
     def set_event_sink(self, event_sink) -> None:  # type: ignore[no-untyped-def]
         self.event_sink = event_sink
 
+    def close(self) -> None:
+        return None
+
     def add(self, url: str, title: str = "") -> FeedSource:
         self.thread = threading.current_thread()
         self.started.set()

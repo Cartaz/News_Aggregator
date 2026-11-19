@@ -46,6 +46,7 @@ def test_real_http_discovery_recovers_second_feed_and_handles_304(tmp_paths, mon
         saved = manager.get(source.id)
         manager.mark_read(source.id, saved.items[0].id)
         assert manager.refresh(source.id) == 0
+        manager.flush()
         restored = FeedManager().get(source.id)
         assert restored.items[0].read
         assert restored.resolved_feed_url.endswith("/feed.xml")

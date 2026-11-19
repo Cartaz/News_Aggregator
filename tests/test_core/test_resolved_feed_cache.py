@@ -8,10 +8,15 @@ from unittest.mock import call, patch
 import pytest
 
 from core.exceptions import FeedFetchError
-from core.feed_fetcher import fetch_and_parse_resolved
+from core.feed_fetcher import FeedFetchResult, fetch_and_parse_resolved
 from core.feed_http import HttpFetchResult
 from core.feed_manager import FeedManager
 from core.feed_serializer import deserialize_source
+
+
+def fetch_call(url: str, source_id: str, etag: str = "", last_modified: str = ""):  # type: ignore[no-untyped-def]
+    """Expected FeedManager -> fetcher call shape."""
+    return call(url, source_id, etag=etag, last_modified=last_modified, cancel_event=None)
 
 
 @pytest.fixture
@@ -48,12 +53,13 @@ def test_discovered_url_is_persisted(
 
     with patch(
         "core.feed_manager.fetch_and_parse_resolved",
-        return_value=("Example", [], resolved),
+        return_value=FeedFetchResult("Example", [], resolved),
     ):
         manager.refresh(source.id)
 
     assert manager.get(source.id).resolved_feed_url == resolved
 
+    manager.flush()
     reloaded = FeedManager()
     assert reloaded.get(source.id).resolved_feed_url == resolved
 
@@ -65,11 +71,11 @@ def test_cached_url_is_used_before_original(manager: FeedManager) -> None:
 
     with patch(
         "core.feed_manager.fetch_and_parse_resolved",
-        return_value=("Example", [], cached),
+        return_value=FeedFetchResult("Example", [], cached),
     ) as fetch_mock:
         manager.refresh(source.id)
 
-    fetch_mock.assert_called_once_with(cached, source.id)
+    assert fetch_mock.call_args_list == [fetch_call(cached, source.id)]
 
 
 def test_broken_cache_falls_back_to_original_and_replaces_cache(
@@ -83,15 +89,15 @@ def test_broken_cache_falls_back_to_original_and_replaces_cache(
     with patch(
         "core.feed_manager.fetch_and_parse_resolved",
         side_effect=[
-            FeedFetchError(old_resolved, "gone"),
-            ("Example", [], new_resolved),
+            FeedFetchError(old_resolved, "gone", status_code=404),
+            FeedFetchResult("Example", [], new_resolved),
         ],
     ) as fetch_mock:
         manager.refresh(source.id)
 
     assert fetch_mock.call_args_list == [
-        call(old_resolved, source.id),
-        call(source.url, source.id),
+        fetch_call(old_resolved, source.id),
+        fetch_call(source.url, source.id),
     ]
     assert manager.get(source.id).resolved_feed_url == new_resolved
 
@@ -116,11 +122,29 @@ def test_fetcher_reports_auto_discovered_feed_url(
             return_value=[resolved],
         ),
     ):
-        title, items, actual_url = fetch_and_parse_resolved(
-            original,
-            "source-id",
-        )
+        result = fetch_and_parse_resolved(original, "source-id")
 
-    assert title == "Feed di Prova"
-    assert len(items) == 2
-    assert actual_url == resolved
+    assert result.title == "Feed di Prova"
+    assert len(result.items) == 2
+    assert result.resolved_url == resolved
+
+
+def test_network_failure_keeps_cached_url_and_validators(manager: FeedManager) -> None:
+    source = manager.add("https://example.com")
+    cached = "https://example.com/feed.xml"
+    _seed_cache(manager, source.id, cached)
+    with manager._lock:
+        manager._sources[source.id].http_etag = '"v1"'
+
+    with patch(
+        "core.feed_manager.fetch_and_parse_resolved",
+        side_effect=FeedFetchError(cached, "offline"),
+    ) as fetch_mock:
+        with pytest.raises(FeedFetchError):
+            manager.refresh(source.id)
+
+    # One request only: no retry without validators, no rediscovery.
+    assert fetch_mock.call_args_list == [fetch_call(cached, source.id, etag='"v1"')]
+    current = manager.get(source.id)
+    assert current.resolved_feed_url == cached
+    assert current.http_etag == '"v1"'

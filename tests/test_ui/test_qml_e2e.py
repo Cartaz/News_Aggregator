@@ -184,11 +184,11 @@ def test_external_read_and_metadata_events_update_visible_state(qtbot, backend):
     ui.sync()
     ui.selectSource(ui.sources.index_for("feed", source.id))
     ui.selectArticle(0)
-    controller.rename_feed(source.id, "Renamed")
+    manager.update_feed(source.id, "Renamed", "")
     qtbot.waitUntil(lambda: ui.scopeTitle == "Renamed")
-    controller.mark_read(source.id, ui.selectedArticleId)
+    manager.mark_read(source.id, ui.selectedArticleId)
     qtbot.waitUntil(lambda: ui.selectedArticleRead)
-    controller.remove_feed(source.id)
+    manager.remove(source.id)
     qtbot.waitUntil(lambda: not ui.hasSelectedArticle)
     assert ui.sources.row(0).selected is True
     assert ui.selectedSourceRow == 0
@@ -200,7 +200,7 @@ def test_config_event_clears_filtered_detail(qtbot, backend):
     seed_items(manager, source.id, [article(source.id, "Item", 1)])
     ui.sync()
     ui.selectArticle(0)
-    controller.mark_read(source.id, ui.selectedArticleId)
+    manager.mark_read(source.id, ui.selectedArticleId)
     qtbot.waitUntil(lambda: ui.selectedArticleRead)
     controller.update_settings({"show_unread_only": True})
     qtbot.waitUntil(lambda: ui.unreadOnly)

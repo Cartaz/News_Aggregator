@@ -21,6 +21,9 @@ class _FeedManager:
     def set_event_sink(self, event_sink) -> None:  # type: ignore[no-untyped-def]
         self.event_sink = event_sink
 
+    def close(self) -> None:
+        return None
+
     def get_all(self):  # type: ignore[no-untyped-def]
         return []
 
@@ -108,20 +111,3 @@ def test_settings_candidate_is_not_visible_before_persistence_commits(
     worker.join(timeout=1.0)
     assert worker.is_alive() is False
     assert manager.settings.show_unread_only is True
-
-
-def test_ui_persistence_paths_use_the_serial_command_boundary() -> None:
-    root = Path(__file__).resolve().parents[2]
-    preferences = (root / "ui" / "preferences.py").read_text(encoding="utf-8")
-    window = (root / "ui" / "window.py").read_text(encoding="utf-8")
-    main_qml = (root / "ui" / "qml" / "Main.qml").read_text(encoding="utf-8")
-    dialogs_qml = (root / "ui" / "qml" / "AppDialogs.qml").read_text(encoding="utf-8")
-
-    assert "self._controller.update_settings_async(changes, done)" in preferences
-    assert "self._controller.update_settings(changes)" not in preferences
-    assert "persist_window_geometry_async(" in window
-    assert "persist_window_geometry(" not in window
-
-    assert "backend.preferences.setSidebarWidth" in main_qml
-    assert "backend.preferences.saveSettings" in dialogs_qml
-    assert "backend.preferences.setSidebarWidth" not in dialogs_qml

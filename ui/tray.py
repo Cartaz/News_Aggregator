@@ -1,4 +1,4 @@
-"""System tray integration for the web-based desktop UI."""
+"""System tray icon with unread badge, menu and notifications."""
 
 from __future__ import annotations
 

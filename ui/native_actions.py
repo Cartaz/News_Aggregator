@@ -1,4 +1,4 @@
-"""Focused Qt-native actions kept outside the WebChannel bridge."""
+"""Qt-native actions injected into the QML adapter (system browser)."""
 
 from __future__ import annotations
 

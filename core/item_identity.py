@@ -92,14 +92,8 @@ def make_item_id(
     return hashlib.sha1(identity.encode("utf-8")).hexdigest()[:16]
 
 
-def legacy_link_id(link: str) -> str:
-    """ID usato dalle versioni precedenti: SHA1 del link grezzo."""
-    return hashlib.sha1((link or "").encode("utf-8")).hexdigest()[:16]
-
-
 __all__ = [
     "canonicalize_url",
     "fallback_identity_key",
-    "legacy_link_id",
     "make_item_id",
 ]

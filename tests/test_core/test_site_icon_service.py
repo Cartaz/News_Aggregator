@@ -7,28 +7,11 @@ from pathlib import Path
 
 from core.models import FeedSource
 from core.site_icon_service import SiteIconService
+from tests.http_fakes import FakeResponse
 
 
-class _Response:
-    def __init__(
-        self,
-        url: str,
-        body: bytes,
-        *,
-        content_type: str,
-        encoding: str = "utf-8",
-    ) -> None:
-        self.url = url
-        self._body = body
-        self.headers = {"Content-Type": content_type}
-        self.encoding = encoding
-
-    def raise_for_status(self) -> None:
-        return None
-
-    def iter_content(self, chunk_size: int = 32768):  # type: ignore[no-untyped-def]
-        del chunk_size
-        yield self._body
+def _response(url: str, body: bytes, *, content_type: str) -> FakeResponse:
+    return FakeResponse(body, url=url, headers={"Content-Type": content_type})
 
 
 def test_site_icon_service_prefers_mask_icon_and_caches_it(
@@ -47,9 +30,9 @@ def test_site_icon_service_prefers_mask_icon_and_caches_it(
     def fake_get(url: str, **_kwargs):  # type: ignore[no-untyped-def]
         calls.append(url)
         if url == "https://example.com/":
-            return _Response(url, homepage, content_type="text/html")
+            return _response(url, homepage, content_type="text/html")
         if url == "https://example.com/brand.svg":
-            return _Response(url, svg, content_type="image/svg+xml")
+            return _response(url, svg, content_type="image/svg+xml")
         raise AssertionError(f"URL inatteso: {url}")
 
     monkeypatch.setattr("core.site_icon_service.requests.get", fake_get)

@@ -14,8 +14,12 @@ concurrency:
 
 jobs:
   quality-and-tests:
-    name: Core, QML contracts and syntax
+    name: Core, QML lint and syntax (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.14"]
     timeout-minutes: 20
     env:
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
@@ -27,7 +31,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
           cache: pip
           cache-dependency-path: |
             requirements.txt
@@ -57,7 +61,7 @@ jobs:
         # retain their informational diagnostics and fail on other warnings.
         run: .venv/bin/pyside6-qmllint --unqualified info -I ui/qml ui/qml/*.qml
 
-      - name: Run core and contract tests
+      - name: Run core and adapter tests
         run: .venv/bin/python -m pytest -q --ignore=tests/test_ui/test_qml_e2e.py
 
   qml-e2e:

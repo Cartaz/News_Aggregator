@@ -11,6 +11,7 @@ from config.constants import Paths
 from core.feed_manager import FeedManager
 from core.models import FeedItem, FeedSource
 from core.site_icon_service import SiteIconService
+from tests.http_fakes import FakeResponse
 
 
 def test_high_count_domain_records_use_slots() -> None:
@@ -30,17 +31,9 @@ def test_high_count_domain_records_use_slots() -> None:
 def test_primary_http_success_does_not_import_curl_cffi(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     import core.feed_http as http
 
-    class _Response:
-        status_code = 200
-        content = b"<rss/>"
-        headers: dict[str, str] = {}
-
-        def raise_for_status(self) -> None:
-            return None
-
     monkeypatch.setattr(http, "cf_requests", None)
     monkeypatch.setattr(http, "_HAS_CURL_CFFI", None)
-    monkeypatch.setattr(http.requests, "get", lambda *_args, **_kwargs: _Response())
+    monkeypatch.setattr(http.requests, "get", lambda *_args, **_kwargs: FakeResponse(b"<rss/>"))
 
     def fail_import(name: str):  # type: ignore[no-untyped-def]
         if name == "curl_cffi.requests":

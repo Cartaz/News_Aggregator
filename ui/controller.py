@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -602,13 +603,9 @@ class UiController(QObject):
             self.operationFinished.emit(action, True, message)
             return
 
-        if action == "removeFeed":
-            self._scope_kind = "all"
-            self._scope_id = ""
-            self._scope_title = "Tutti gli articoli"
-            self._selected_article_id = ""
-
-        self.sync()
+        # Other commands emit their own domain event (feed_updated,
+        # feed_removed, item_read_changed, config_changed), already queued
+        # ahead of this completion and already reflected in the view.
         messages = {
             "updateFeed": "Feed aggiornato",
             "removeFeed": "Feed rimosso",
@@ -637,8 +634,9 @@ class UiController(QObject):
         if self._shutdown:
             return
         data = payload if isinstance(payload, dict) else {}
+        # Refresh completion callbacks only report: the inactive
+        # refresh_state_changed event queued before them already synced.
         if event_name == "refresh_callback_all":
-            self.sync()
             failed = int(data.get("failed", 0) or 0)
             success = int(data.get("success", 0) or 0)
             title = "Aggiornamento completato con errori" if failed else "Aggiornamento completato"
@@ -646,7 +644,6 @@ class UiController(QObject):
             self.toastRequested.emit(title, message, failed > 0)
             return
         if event_name == "refresh_callback_feed":
-            self.sync()
             if not bool(data.get("success", False)):
                 self.toastRequested.emit("Aggiornamento feed fallito", str(data.get("message", "")), True)
             return
@@ -665,7 +662,10 @@ class UiController(QObject):
             self.scopeChanged.emit()
             self.articleSelectionChanged.emit()
             return
-        if event_name in {"item_read_changed", "feed_renamed", "feed_category_changed", "feed_updated", "feed_removed"}:
+        if event_name == "item_read_changed":
+            self._apply_read(str(data.get("item_id", "")))
+            return
+        if event_name in {"feed_updated", "feed_removed"}:
             self.sync()
             return
         if event_name == "new_items_available":
@@ -687,19 +687,23 @@ class UiController(QObject):
             return
         if event_name in {
             "feed_added",
-            "feed_removed",
-            "feed_updated",
             "feed_refresh_completed",
             "feed_refresh_failed",
             "feed_refresh_cancelled",
         }:
+            # Per-feed failures stay visible in the sidebar status; user-started
+            # refreshes report them through their completion callbacks.
             self._sync_navigation()
-            if event_name == "feed_refresh_failed":
-                self.toastRequested.emit(
-                    "Feed non aggiornato",
-                    str(data.get("error", "Errore di rete")),
-                    True,
-                )
+
+    def _apply_read(self, item_id: str) -> None:
+        """Reflect one read-state change without rebuilding the article list."""
+        if not item_id:
+            return
+        self._articles.set_read(item_id)
+        if self._selected_article is not None and self._selected_article.id == item_id:
+            self._selected_article = replace(self._selected_article, read=True)
+            self.articleSelectionChanged.emit()
+        self._sync_navigation()
 
     @staticmethod
     def _normalize_url(raw: str) -> str:

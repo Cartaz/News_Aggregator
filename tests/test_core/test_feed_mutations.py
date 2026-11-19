@@ -40,7 +40,7 @@ def test_update_feed_keeps_canonical_state_when_persistence_fails(
     manager: FeedManager,
 ) -> None:
     source = manager.add("https://example.com/feed.xml", title="Before")
-    manager.set_category(source.id, "Old")
+    manager.update_feed(source.id, "Before", "Old")
 
     with patch.object(
         manager,

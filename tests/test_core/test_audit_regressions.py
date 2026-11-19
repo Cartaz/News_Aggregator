@@ -7,6 +7,7 @@ import pytest
 
 from config.exceptions import ConfigValidationError
 from config.settings import SettingsManager
+from core.feed_fetcher import FeedFetchResult
 from core.feed_manager import FeedManager
 from core.feed_parser import parse_feed_bytes
 from core.app_controller import AppController
@@ -76,7 +77,7 @@ def test_saved_item_limit_is_applied_and_latest_articles_win(tmp_paths, monkeypa
     source = manager.add("https://example.com/feed.xml")
     now = datetime.now(timezone.utc)
     entries = [FeedItem.from_raw(source.id, str(i), f"https://example.com/{i}", "", now - timedelta(minutes=i)) for i in range(80)]
-    monkeypatch.setattr("core.feed_manager.fetch_and_parse_resolved", lambda *a, **k: ("Feed", list(reversed(entries)), source.url))
+    monkeypatch.setattr("core.feed_manager.fetch_and_parse_resolved", lambda *a, **k: FeedFetchResult("Feed", list(reversed(entries)), source.url))
     try:
         assert manager.refresh(source.id) == 65
         assert manager.get(source.id).items == entries[:65]
@@ -106,7 +107,7 @@ def test_cancelled_auto_timer_cannot_reschedule_or_refresh(tmp_paths, monkeypatc
     try:
         controller.start_auto_refresh()
         generation = controller._auto_generation
-        controller.stop_auto_refresh()
+        controller._stop_auto_refresh()
         controller._on_auto_refresh(generation)
         assert calls == []
         assert controller._auto_timer is None
